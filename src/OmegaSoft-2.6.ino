@@ -320,10 +320,10 @@ void startup () {
   digitalWrite(ledblu, HIGH);
   digitalWrite(ledred, HIGH);
   digitalWrite(ledgrn, HIGH);
-  tone(buzzer, 1050);
+  tone(buzzer, 1050, 400);
   delay(800);
   digitalWrite(ledgrn, LOW);
-  tone(buzzer, 1150);
+  tone(buzzer, 1150, 400);
   delay(400);
   tone(buzzer, LOW);
   digitalWrite(ledred, LOW);
@@ -486,15 +486,17 @@ void launchpoll () {
   if (voltageDividerOUT < 8 && voltageDividerOUT > 7.6) {
     digitalWrite(teensyled, HIGH);
     tone(buzzer, 1200, 400);
+    delay(400);
     digitalWrite(teensyled, LOW);
     tone(buzzer, 1200, 400);
+    delay(400);
     
   }
   
   // If the system voltage is less than 7.6 shift states and don't launch
   if (voltageDividerOUT < 7.6) {
     state = 6;
-    while (1) {
+    while (state == 6) {
       digitalWrite(teensyled, HIGH);
       tone(buzzer, 1200, 400);
       digitalWrite(teensyled, LOW);
@@ -504,7 +506,7 @@ void launchpoll () {
 
 /////////////////////////////////////////////////
 ////////////////////////////////////////////////
-
+ if (state == 0) {
   int status;
   //Checking to see if the Teensy can communicate with the BMI088 accelerometer
   status = accel.begin();
@@ -534,8 +536,9 @@ void launchpoll () {
   digitalWrite(ledgrn, HIGH);
   digitalWrite(ledred, HIGH);
   digitalWrite(ledblu, LOW);
+  
+  }
 }
-
 void abortsystem () {
   if ((state == 1) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
     Serial.println("Abort Detected.");
