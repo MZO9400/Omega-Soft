@@ -29,7 +29,7 @@ Bmi088Gyro gyro(Wire,0x68);
 
 BMP280_DEV bmp280;  
 
-float temperature, pressure, altitude;            
+float temperature, pressure, altitude, altitudefinal, altitude2;            
    
 // PID Controller Output
 double PIDX, PIDY;
@@ -77,15 +77,15 @@ int desired_angleY = 0;
 int servodirection = -1;
 
 //Offsets for tuning 
-int servoY_offset = servodirection * 100;
-int servoX_offset = servodirection * -124;
+int servoY_offset = servodirection * 120;
+int servoX_offset = servodirection * 120;
 
 //Position of servos through the startup function
 int servoXstart = servodirection * servoY_offset;
 int servoYstart = servodirection * servoX_offset;
 
 //The amount the servo moves by in the startup function
-int servo_start_offset = 25;
+int servo_start_offset = 8;
 
 //Ratio between servo gear and tvc mount
 float servoX_gear_ratio = 4;
@@ -151,13 +151,13 @@ unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 float voltageDividerIN;
 float voltageDividerOUT;
 float voltageDividermap;
-float voltageDividerMultplier = 5.8;
+float voltageDividerMultplier = 5.86;
 
 // The degrees that triggers the abort function
 int abortoffset = 45;
 
 // Launch Site Altitude in Meters(ASL)
-int launchsite_alt = 110;
+int launchsite_alt = 0;
 
 // Servo frequency
 int servoFrequency = 333;
@@ -194,7 +194,7 @@ void setup(){
   startup();
   sdstart();
   launchpoll();
-  voltage();
+  
 }
 
 void loop() {
@@ -217,12 +217,30 @@ void loop() {
   }
   burnoutTime = currentTime_2 - burnoutTime_2;
 
+  if (state == 0) {
+    altitude2 = altitude;
+  }
+  altitudefinal = altitude - altitude2;
+ 
   launchdetect();
   datadump();
   sdwrite();
   burnout();
   voltage();
-
+  
+    // If the system voltage is less than 8.0 and greater then 7.6 signal a warning
+    
+  if (voltageDividerOUT <= 8) {
+    state = 6;
+    digitalWrite(teensyled, HIGH);
+    tone(buzzer, 1200);
+    delay(400);
+    digitalWrite(teensyled, LOW);
+    noTone(buzzer);
+    delay(400);
+    
+  }
+ 
   // Setting the previous time to the current time
   previousTime = currentTime;  
 }
@@ -373,13 +391,7 @@ void launchdetect () {
 }
 
 void datadump () {
-  if (state >= 1) {  
-    Serial.print("Voltage:  ");
-    Serial.println(voltageDividerOUT);
-  }
-  // Serial printing system state
-  Serial.print(" System State:  ");
-  Serial.println(state);
+
 }
 
 void sdstart () { 
@@ -471,38 +483,17 @@ void burnout () {
     tone(buzzer, 1200, 200);
   }
 
-  if (state == 3 && (altitude - launchsite_alt) <= 165) {
+  if (state == 3 && (altitudefinal - launchsite_alt) <= -1) {
     // Chute deployment
     state++;
     digitalWrite(pyro1, HIGH);
-    digitalWrite(ledred, LOW);
+    digitalWrite(ledred, HIGH);
   }
 }
 
 void launchpoll () {
   delay(1000);
-  
-    // If the system voltage is less than 8.0 and greater then 7.6 signal a warning
-  if (voltageDividerOUT < 8 && voltageDividerOUT > 7.6) {
-    digitalWrite(teensyled, HIGH);
-    tone(buzzer, 1200, 400);
-    delay(400);
-    digitalWrite(teensyled, LOW);
-    tone(buzzer, 1200, 400);
-    delay(400);
-    
-  }
-  
-  // If the system voltage is less than 7.6 shift states and don't launch
-  if (voltageDividerOUT < 7.6) {
-    state = 6;
-    while (state == 6) {
-      digitalWrite(teensyled, HIGH);
-      tone(buzzer, 1200, 400);
-      digitalWrite(teensyled, LOW);
-      tone(buzzer, 1200, 400);
-  }
-}
+
 
 /////////////////////////////////////////////////
 ////////////////////////////////////////////////
