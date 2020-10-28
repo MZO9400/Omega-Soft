@@ -140,10 +140,10 @@ unsigned long previousLog = 0;
 const long logInterval = 100;  
 
 // Time in millis after launch when burnout can be triggered  
-const long burnoutInterval = 500;
+const long burnoutInterval = 750;
 
 // Delay after burnout when the flight computer will deploy the chutes
-const long burnoutTimeInterval = 2000;    
+const long burnoutTimeInterval = 1500;    
 
 unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 
@@ -187,6 +187,8 @@ void setup(){
   pinMode(ledred, OUTPUT);
   pinMode(buzzer, OUTPUT);
   pinMode(pyro1, OUTPUT);
+  pinMode(pyro2, OUTPUT);
+  pinMode(pyro3, OUTPUT);
   pinMode(errorled, OUTPUT);
   pinMode(statusled, OUTPUT);
   pinMode(teensyled, OUTPUT);
@@ -203,6 +205,7 @@ void loop() {
   currentTime_2 = millis();         
   dt = (currentTime - previousTime) / 1000; 
 
+  // Get measurements from the BMP280 
   if (bmp280.getMeasurements(temperature, pressure, altitude)) {
   
   //Timer to wait a certain time after launch before burnout is activated
@@ -226,17 +229,18 @@ void loop() {
   launchdetect();
   sdwrite();
   burnout();
+  abortsystem();
   voltage();
   
   // If the system voltage is less than 7.6
     if (voltageDividerOUT <= 7.6 && state == 0) {
-    state = 6;
-    digitalWrite(teensyled, HIGH);
-    tone(buzzer, 1200);
-    delay(400);
-    digitalWrite(teensyled, LOW);
-    noTone(buzzer);
-    delay(400);
+      state = 6;
+      digitalWrite(teensyled, HIGH);
+      tone(buzzer, 1200);
+      delay(400);
+      digitalWrite(teensyled, LOW);
+      noTone(buzzer);
+      delay(400);
     
   }
  
@@ -337,12 +341,13 @@ void startup () {
   digitalWrite(ledblu, HIGH);
   digitalWrite(ledred, HIGH);
   digitalWrite(ledgrn, HIGH);
-  tone(buzzer, 1050, 400);
+  tone(buzzer, 1050);
   delay(800);
+  noTone(buzzer);
   digitalWrite(ledgrn, LOW);
-  tone(buzzer, 1150, 400);
+  tone(buzzer, 1150);
   delay(400);
-  tone(buzzer, LOW);
+  noTone(buzzer);
   digitalWrite(ledred, LOW);
   digitalWrite(ledblu, HIGH);
   servoX.write(servoXstart);
@@ -360,13 +365,13 @@ void startup () {
   delay(200);
   digitalWrite(ledred, LOW);
   digitalWrite(ledblu, HIGH);
-  tone(buzzer, 1100, 400);
+  tone(buzzer, 1100);
   servoY.write(servoYstart + servo_start_offset);
   delay(400);
-  tone(buzzer, 1150, 350);
+  tone(buzzer, 1150);
   servoY.write(servoYstart - servo_start_offset);
   delay(200);
-  tone(buzzer, 1200, 250);
+  tone(buzzer, 1200);
   servoY.write(servoYstart);
   delay(200);
 }
@@ -384,7 +389,6 @@ void launchdetect () {
     digitalWrite(ledred, LOW);
     digitalWrite(ledgrn, LOW);
     digitalWrite(ledblu, HIGH);
-    abortsystem();
     rotationmatrices();
  }
 }
@@ -526,7 +530,7 @@ void launchpoll () {
   }
 }
 void abortsystem () {
-  if ((state == 1) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
+  if ((state == 1) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset) && (flightTime > burnoutInterval)) {
     Serial.println("Abort Detected.");
     digitalWrite(ledblu, HIGH);
     digitalWrite(ledgrn, LOW);
