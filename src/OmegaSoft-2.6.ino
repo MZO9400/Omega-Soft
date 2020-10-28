@@ -216,21 +216,20 @@ void loop() {
     burnoutTime_2 = currentTime_2;
   }
   burnoutTime = currentTime_2 - burnoutTime_2;
-
+  
+  // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
   if (state == 0) {
     altitude2 = altitude;
   }
   altitudefinal = altitude - altitude2;
  
   launchdetect();
-  datadump();
   sdwrite();
   burnout();
   voltage();
   
-    // If the system voltage is less than 8.0 and greater then 7.6 signal a warning
-    
-  if (voltageDividerOUT <= 7.6 && state == 0) {
+  // If the system voltage is less than 7.6
+    if (voltageDividerOUT <= 7.6 && state == 0) {
     state = 6;
     digitalWrite(teensyled, HIGH);
     tone(buzzer, 1200);
@@ -390,10 +389,6 @@ void launchdetect () {
  }
 }
 
-void datadump () {
-
-}
-
 void sdstart () { 
 if (!SD.begin(chipSelect)) {
     // Checking to see if the Teensy can communicate with the SD card
@@ -445,7 +440,7 @@ void sdwrite () {
   datastring += ",";
   
   datastring += "Altitude,";
-  datastring += String(altitude);
+  datastring += String(altitudefinal);
   datastring += ",";
   
   datastring += "Pressure,";
@@ -492,7 +487,7 @@ void burnout () {
 }
 
 void launchpoll () {
-  delay(1000);
+ delay(1000);
 
 
 /////////////////////////////////////////////////
