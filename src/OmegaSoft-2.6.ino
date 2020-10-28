@@ -230,7 +230,7 @@ void loop() {
   
     // If the system voltage is less than 8.0 and greater then 7.6 signal a warning
     
-  if (voltageDividerOUT <= 8) {
+  if (voltageDividerOUT <= 7.6 && state == 0) {
     state = 6;
     digitalWrite(teensyled, HIGH);
     tone(buzzer, 1200);
