@@ -2,15 +2,15 @@
       Version 2.6
     October, 25th 2020 */
 
-/*System State: 
- * 0 = Go/No Go before launch
- * 1 = PID Controlled Ascent
- * 2 = Main Engine Cutoff (MECO)
- * 3 = Apogee Detected
- * 4 = Chute Descent
- * 5 = Abort Detected
- * 6 = Battery voltage too low
- */
+/*System State:
+   0 = Go/No Go before launch
+   1 = PID Controlled Ascent
+   2 = Main Engine Cutoff (MECO)
+   3 = Apogee Detected
+   4 = Chute Descent
+   5 = Abort Detected
+   6 = Battery voltage too low
+*/
 
 //Libraries
 #include <SD.h>
@@ -19,18 +19,18 @@
 #include <Wire.h>
 #include <math.h>
 #include "BMI088.h"
-#include <BMP280_DEV.h>                           
+#include <BMP280_DEV.h>
 
 
 /* accel object */
-Bmi088Accel accel(Wire,0x18);
+Bmi088Accel accel(Wire, 0x18);
 /* gyro object */
-Bmi088Gyro gyro(Wire,0x68);
+Bmi088Gyro gyro(Wire, 0x68);
 
-BMP280_DEV bmp280;  
+BMP280_DEV bmp280;
 
-float temperature, pressure, altitude, altitudefinal, altitude2;            
-   
+float temperature, pressure, altitude, altitudefinal, altitude2;
+
 // PID Controller Output
 double PIDX, PIDY;
 
@@ -44,7 +44,7 @@ double pwmX, pwmY;
 double GyroAngleX, GyroAngleY, GyroAngleZ;
 
 // Local Integrated Gyros in radians
-double RADGyroX, RADGyroY, RADGyroZ, PreviousGyroX, PreviousGyroY, PreviousGyroZ; 
+double RADGyroX, RADGyroY, RADGyroZ, PreviousGyroX, PreviousGyroY, PreviousGyroZ;
 
 // Difference between beginning of the beginning and end of the loop
 double DifferenceGyroX, DifferenceGyroY, DifferenceGyroZ;
@@ -76,7 +76,7 @@ int desired_angleY = 0;
 // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
 int servodirection = -1;
 
-//Offsets for tuning 
+//Offsets for tuning
 int servoY_offset = servodirection * 120;
 int servoX_offset = servodirection * 120;
 
@@ -92,9 +92,9 @@ float servoX_gear_ratio = 4;
 float servoY_gear_ratio = 4;
 
 // Defining Digital Pins
-int ledred = 0;    
-int ledblu = 4;    
-int ledgrn = 5; 
+int ledred = 0;
+int ledblu = 4;
+int ledgrn = 5;
 int statusled = 9;
 int errorled = 1;
 int pyro1 = 34;
@@ -136,14 +136,14 @@ double kd = 0.02;
 int state = 0;
 
 //Timer settings for dataLogging in Hz
-unsigned long previousLog = 0;        
-const long logInterval = 100;  
+unsigned long previousLog = 0;
+const long logInterval = 100;
 
-// Time in millis after launch when burnout can be triggered  
+// Time in millis after launch when burnout can be triggered
 const long burnoutInterval = 750;
 
 // Delay after burnout when the flight computer will deploy the chutes
-const long burnoutTimeInterval = 1500;    
+const long burnoutTimeInterval = 1500;
 
 unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 
@@ -162,7 +162,7 @@ int launchsite_alt = 0;
 // Servo frequency
 int servoFrequency = 333;
 
-void setup(){
+void setup() {
   // Starting serial communication with your computer
   Serial.begin(9600);
 
@@ -174,13 +174,13 @@ void setup(){
   servoY.attach(3);
 
   // Starting communication with the onboard BMP280
-  bmp280.begin();              
-  bmp280.startNormalConversion();  
+  bmp280.begin();
+  bmp280.startNormalConversion();
 
   // Setting the servo frequency
   analogWriteFrequency(2, servoFrequency);
   analogWriteFrequency(3, servoFrequency);
-  
+
   // Setting all of the digital pins to output
   pinMode(ledblu, OUTPUT);
   pinMode(ledgrn, OUTPUT);
@@ -192,61 +192,32 @@ void setup(){
   pinMode(errorled, OUTPUT);
   pinMode(statusled, OUTPUT);
   pinMode(teensyled, OUTPUT);
- 
+
   startup();
   sdstart();
   launchpoll();
-  
+
 }
 
 void loop() {
-  //Defining Time Variables      
-  currentTime = millis();    
-  currentTime_2 = millis();         
-  dt = (currentTime - previousTime) / 1000; 
+  //Defining Time Variables
+  currentTime = millis();
+  currentTime_2 = millis();
+  dt = (currentTime - previousTime) / 1000;
 
-  // Get measurements from the BMP280 
+  // Get measurements from the BMP280
   if (bmp280.getMeasurements(temperature, pressure, altitude)) {
-  
-  //Timer to wait a certain time after launch before burnout is activated
-  if (state == 0) {
-    liftoffTime = currentTime;
-  }
-  flightTime = currentTime - liftoffTime;
+    inflightTimer();
+    altitudeOffset();
+    launchdetect();
+    sdwrite();
+    burnout();
+    abortsystem();
+    voltage();
 
-  //Timer that waits a certain time after burnout to deploy the chutes
-  if (state == 0 || state == 1) {
-    burnoutTime_2 = currentTime_2;
+    // Setting the previous time to the current time
+    previousTime = currentTime;
   }
-  burnoutTime = currentTime_2 - burnoutTime_2;
-  
-  // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
-  if (state == 0) {
-    altitude2 = altitude;
-  }
-  altitudefinal = altitude - altitude2;
- 
-  launchdetect();
-  sdwrite();
-  burnout();
-  abortsystem();
-  voltage();
-  
-  // If the system voltage is less than 7.6
-    if (voltageDividerOUT <= 7.6 && state == 0) {
-      state = 6;
-      digitalWrite(teensyled, HIGH);
-      tone(buzzer, 1200);
-      delay(400);
-      digitalWrite(teensyled, LOW);
-      noTone(buzzer);
-      delay(400);
-    
-  }
- 
-  // Setting the previous time to the current time
-  previousTime = currentTime;  
-}
 }
 void rotationmatrices () {
   //Change Variable so its easier to refrence later on
@@ -262,11 +233,11 @@ void rotationmatrices () {
   PreviousGyroX = RADGyroX;
   PreviousGyroY = RADGyroY;
   PreviousGyroZ = RADGyroZ;
-  
+
   RADGyroX = GyroAngleX;
   RADGyroY = GyroAngleY;
   RADGyroZ = GyroAngleZ;
-  
+
   // Finding the difference between the beginning of beginning and the end of rotationmatrices
   DifferenceGyroX = (RADGyroX - PreviousGyroX);
   DifferenceGyroY = (RADGyroY - PreviousGyroY);
@@ -275,18 +246,18 @@ void rotationmatrices () {
   OreX = OrientationX;
   OreY = OrientationY;
   OreZ = OrientationZ;
-  
- //X Matrices
+
+  //X Matrices
   matrix1 = (cos(DifferenceGyroZ) * cos(DifferenceGyroY));
   matrix2 = (((sin(DifferenceGyroZ) * -1) * cos(DifferenceGyroX) + (cos(DifferenceGyroZ)) * sin(DifferenceGyroY) * sin(DifferenceGyroX)));
   matrix3 = ((sin(DifferenceGyroZ) * sin(DifferenceGyroX) + (cos(DifferenceGyroZ)) * sin(DifferenceGyroY) * cos(DifferenceGyroX)));
-  
- //Y Matrices
+
+  //Y Matrices
   matrix4 = sin(DifferenceGyroZ) * cos(DifferenceGyroY);
   matrix5 = ((cos(DifferenceGyroZ) * cos(DifferenceGyroX) + (sin(DifferenceGyroZ)) * sin(DifferenceGyroY) * sin(DifferenceGyroX)));
   matrix6 = (((cos(DifferenceGyroZ) * -1) * sin(DifferenceGyroX) + (sin(DifferenceGyroZ)) * sin(DifferenceGyroY) * cos(DifferenceGyroX)));
 
- //Z Matrices
+  //Z Matrices
   matrix7 = (sin(DifferenceGyroY)) * -1;
   matrix8 = cos(DifferenceGyroY) * sin(DifferenceGyroX);
   matrix9 = cos(DifferenceGyroY) * cos(DifferenceGyroX);
@@ -308,12 +279,12 @@ void rotationmatrices () {
 
 void pidcompute () {
   previous_errorX = errorX;
-  previous_errorY = errorY; 
+  previous_errorY = errorY;
 
   errorX = Ax - desired_angleX;
   errorY = Ay - desired_angleY;
 
-  //Defining "P" 
+  //Defining "P"
   pidX_p = kp * errorX;
   pidY_p = kp * errorY;
 
@@ -328,9 +299,9 @@ void pidcompute () {
   //Adding it all up
   PIDX = pidX_p + pidX_i + pidX_d;
   PIDY = pidY_p + pidY_i + pidY_d;
- 
+
   pwmY = servodirection * ((PIDY * servoY_gear_ratio) + servoX_offset);
-  pwmX = servodirection * ((PIDX * servoX_gear_ratio) + servoY_offset); 
+  pwmX = servodirection * ((PIDX * servoX_gear_ratio) + servoY_offset);
 
   //Servo outputs
   servoX.write(pwmX);
@@ -376,8 +347,8 @@ void startup () {
   delay(400);
   noTone(buzzer);
 }
- 
-void launchdetect () {  
+
+void launchdetect () {
   // Read from the accelerometers
   accel.readSensor();
   digitalWrite(statusled, HIGH);
@@ -391,11 +362,11 @@ void launchdetect () {
     digitalWrite(ledgrn, LOW);
     digitalWrite(ledblu, HIGH);
     rotationmatrices();
- }
+  }
 }
 
-void sdstart () { 
-if (!SD.begin(chipSelect)) {
+void sdstart () {
+  if (!SD.begin(chipSelect)) {
     // Checking to see if the Teensy can communicate with the SD card
     Serial.println("SD card not present, please insert the card into the Teensy.");
     digitalWrite(errorled, HIGH);
@@ -408,18 +379,18 @@ if (!SD.begin(chipSelect)) {
 void sdwrite () {
   String datastring = "";
 
-  datastring += "Pitch,"; 
+  datastring += "Pitch,";
   datastring += String(Ax);
   datastring += ",";
 
   datastring += "Yaw,";
   datastring += String(Ay);
   datastring += ",";
- 
+
   datastring += "System_State,";
   datastring += String(state);
   datastring += ",";
- 
+
   datastring += "Z_Axis_Accel,";
   datastring += String(accel.getAccelZ_mss());
   datastring += ",";
@@ -427,7 +398,7 @@ void sdwrite () {
   datastring += "Servo_X_POS,";
   datastring += String(servoX.read());
   datastring += ",";
- 
+
   datastring += "Servo_Y_POS,";
   datastring += String(servoY.read());
   datastring += ",";
@@ -443,28 +414,28 @@ void sdwrite () {
   datastring += "Barometer Temp,";
   datastring += String(temperature);
   datastring += ",";
-  
+
   datastring += "Altitude,";
   datastring += String(altitudefinal);
   datastring += ",";
-  
+
   datastring += "Pressure,";
   datastring += String(pressure);
   datastring += ",";
-  
-  
+
+
   File omegaFile = SD.open("log001.txt", FILE_WRITE);
-  
+
   if (omegaFile) {
-    if(currentTime - previousLog > logInterval){
+    if (currentTime - previousLog > logInterval) {
       previousLog = currentTime;
       omegaFile.println(datastring);
       omegaFile.close();
-  }    
- }
+    }
+  }
 }
 
-void burnout () { 
+void burnout () {
   if ((state == 1) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     state++;
@@ -475,7 +446,7 @@ void burnout () {
     Serial.println("Burnout Detected");
   }
 
-  if((state == 2) && burnoutTime > burnoutTimeInterval) {
+  if ((state == 2) && burnoutTime > burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
     state++;
     digitalWrite(ledgrn, LOW);
@@ -492,40 +463,39 @@ void burnout () {
 }
 
 void launchpoll () {
- delay(1000);
+  delay(1000);
 
-
- if (state == 0) {
-  int status;
-  //Checking to see if the Teensy can communicate with the BMI088 accelerometer
-  status = accel.begin();
-  if (status < 0) {
-    Serial.println("Accel Initialization Error");
-    digitalWrite(errorled, HIGH);
-    while (1) {}
+  if (state == 0) {
+    int status;
+    //Checking to see if the Teensy can communicate with the BMI088 accelerometer
+    status = accel.begin();
+    if (status < 0) {
+      Serial.println("Accel Initialization Error");
+      digitalWrite(errorled, HIGH);
+      while (1) {}
     }
 
-  //Checking to see if the Teensy can communicate with the BMI088 gyroscopes
-  status = gyro.begin();
-  if (status < 0) {
-    Serial.println("Gyro Initialization Error"); 
-    digitalWrite(errorled, HIGH);
-    while (1) {}
-  }
-  Serial.println("I2C Devices Found!");
-  delay(250);
- 
-  // Calculating the gyro offsets
-  float totalAccelVec = sqrt(sq(accel.getAccelZ_mss()) + sq(accel.getAccelY_mss()) + sq(accel.getAccelX_mss()));
-  Ax = -asin(accel.getAccelZ_mss() / totalAccelVec);
-  Ay = asin(accel.getAccelY_mss() / totalAccelVec);
+    //Checking to see if the Teensy can communicate with the BMI088 gyroscopes
+    status = gyro.begin();
+    if (status < 0) {
+      Serial.println("Gyro Initialization Error");
+      digitalWrite(errorled, HIGH);
+      while (1) {}
+    }
+    Serial.println("I2C Devices Found!");
+    delay(250);
 
-  Serial.println("Gyroscopes have been calibrated.");
-  delay(500);
-  digitalWrite(ledgrn, HIGH);
-  digitalWrite(ledred, HIGH);
-  digitalWrite(ledblu, LOW);
-  
+    // Calculating the gyro offsets
+    float totalAccelVec = sqrt(sq(accel.getAccelZ_mss()) + sq(accel.getAccelY_mss()) + sq(accel.getAccelX_mss()));
+    Ax = -asin(accel.getAccelZ_mss() / totalAccelVec);
+    Ay = asin(accel.getAccelY_mss() / totalAccelVec);
+
+    Serial.println("Gyroscopes have been calibrated.");
+    delay(500);
+    digitalWrite(ledgrn, HIGH);
+    digitalWrite(ledred, HIGH);
+    digitalWrite(ledblu, LOW);
+
   }
 }
 void abortsystem () {
@@ -548,10 +518,44 @@ void abortsystem () {
 void voltage () {
   // Reading the voltage from the analog pin
   voltageDividerIN = analogRead(voltagedivider);
-  
-  // Map the voltage to 3.3V 
+
+  // Map the voltage to 3.3V
   voltageDividermap = map(voltageDividerIN, 0, 2048, 0, 3.3);
-  
+
   // Multiply the output from the mapping function to get the true voltage
   voltageDividerOUT = voltageDividermap * voltageDividerMultplier;
+
+  // If the system voltage is less than 7.6
+  if (voltageDividerOUT <= 7.6 && state == 0) {
+    state = 6;
+    digitalWrite(teensyled, HIGH);
+    tone(buzzer, 1200);
+    delay(400);
+    digitalWrite(teensyled, LOW);
+    noTone(buzzer);
+    delay(400);
+
+  }
+}
+
+void inflightTimer () {
+  //Timer to wait a certain time after launch before burnout is activated
+  if (state == 0) {
+    liftoffTime = currentTime;
+  }
+  flightTime = currentTime - liftoffTime;
+
+  //Timer that waits a certain time after burnout to deploy the chutes
+  if (state == 0 || state == 1) {
+    burnoutTime_2 = currentTime_2;
+  }
+  burnoutTime = currentTime_2 - burnoutTime_2;
+}
+
+void altitudeOffset () {
+  // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
+  if (state == 0) {
+    altitude2 = altitude;
+  }
+  altitudefinal = altitude - altitude2;
 }
