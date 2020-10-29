@@ -373,7 +373,8 @@ void startup () {
   delay(200);
   tone(buzzer, 1200);
   servoY.write(servoYstart);
-  delay(200);
+  delay(400);
+  noTone(buzzer);
 }
  
 void launchdetect () {  
@@ -494,8 +495,6 @@ void launchpoll () {
  delay(1000);
 
 
-/////////////////////////////////////////////////
-////////////////////////////////////////////////
  if (state == 0) {
   int status;
   //Checking to see if the Teensy can communicate with the BMI088 accelerometer
