@@ -77,8 +77,8 @@ int desired_angleY = 0;
 int servodirection = -1;
 
 //Offsets for tuning
-int servoY_offset = servodirection * 120;
-int servoX_offset = servodirection * 120;
+int servoY_offset = servodirection * 115;
+int servoX_offset = servodirection * 132;
 
 //Position of servos through the startup function
 int servoXstart = servodirection * servoY_offset;
@@ -128,22 +128,22 @@ float pidY_d = 0;
 
 
 //PID Gains
-double kp = 0.12;
-double ki = 0.0;
-double kd = 0.02;
+double kp = 0.09;
+double ki = 0.06;
+double kd = 0.0275;
 
 // Setting the system state to 0
 int state = 0;
 
 //Timer settings for dataLogging in Hz
 unsigned long previousLog = 0;
-const long logInterval = 100;
+const long logInterval = 150;
 
 // Time in millis after launch when burnout can be triggered
 const long burnoutInterval = 750;
 
 // Delay after burnout when the flight computer will deploy the chutes
-const long burnoutTimeInterval = 1500;
+const long burnoutTimeInterval = 1000;
 
 unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 
@@ -214,6 +214,18 @@ void loop() {
     burnout();
     abortsystem();
     voltage();
+    
+     // If the system voltage is less than 7.6
+  if (voltageDividerOUT <= 7.4) {
+    state = 6;
+    digitalWrite(teensyled, HIGH);
+    tone(buzzer, 1200);
+    delay(400);
+    digitalWrite(teensyled, LOW);
+    noTone(buzzer);
+    delay(400);
+
+  }
 
     // Setting the previous time to the current time
     previousTime = currentTime;
@@ -300,8 +312,8 @@ void pidcompute () {
   PIDX = pidX_p + pidX_i + pidX_d;
   PIDY = pidY_p + pidY_i + pidY_d;
 
-  pwmY = servodirection * ((PIDY * servoY_gear_ratio) + servoX_offset);
-  pwmX = servodirection * ((PIDX * servoX_gear_ratio) + servoY_offset);
+  pwmY = servodirection * ((PIDY * servoX_gear_ratio) + servoX_offset);
+  pwmX = servodirection * ((PIDX * servoY_gear_ratio) + servoY_offset);
 
   //Servo outputs
   servoX.write(pwmX);
@@ -525,17 +537,6 @@ void voltage () {
   // Multiply the output from the mapping function to get the true voltage
   voltageDividerOUT = voltageDividermap * voltageDividerMultplier;
 
-  // If the system voltage is less than 7.6
-  if (voltageDividerOUT <= 7.6 && state == 0) {
-    state = 6;
-    digitalWrite(teensyled, HIGH);
-    tone(buzzer, 1200);
-    delay(400);
-    digitalWrite(teensyled, LOW);
-    noTone(buzzer);
-    delay(400);
-
-  }
 }
 
 void inflightTimer () {
