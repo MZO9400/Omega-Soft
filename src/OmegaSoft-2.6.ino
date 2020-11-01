@@ -463,8 +463,7 @@ void burnout () {
 }
 
 void launchpoll () {
-  delay(1000);
-
+  delay(750);
   if (state == 0) {
     int status;
     //Checking to see if the Teensy can communicate with the BMI088 accelerometer
@@ -485,13 +484,8 @@ void launchpoll () {
     Serial.println("I2C Devices Found!");
     delay(250);
 
-    // Calculating the gyro offsets
-    float totalAccelVec = sqrt(sq(accel.getAccelZ_mss()) + sq(accel.getAccelY_mss()) + sq(accel.getAccelX_mss()));
-    Ax = -asin(accel.getAccelZ_mss() / totalAccelVec);
-    Ay = asin(accel.getAccelY_mss() / totalAccelVec);
-
+    calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
     Serial.println("Gyroscopes have been calibrated.");
-    delay(500);
     digitalWrite(ledgrn, HIGH);
     digitalWrite(ledred, HIGH);
     digitalWrite(ledblu, LOW);
@@ -562,4 +556,15 @@ void voltageWarning () {
     delay(400);
 
   }
+}
+
+    
+void calibrateGyroscopes(float AcX, float AcY, float AcZ) { 
+  // Calculating the gyro offsets
+  AcX = accel.getAccelY_mss();
+  AcY = accel.getAccelZ_mss();
+  AcZ = accel.getAccelX_mss();
+  float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
+  Ax = -asin(AcZ / totalAccel);
+  Ay = asin(AcX / totalAccel);
 }
