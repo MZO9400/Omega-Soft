@@ -214,18 +214,6 @@ void loop() {
     burnout();
     abortsystem();
     voltage();
-    
-     // If the system voltage is less than 7.6
-  if (voltageDividerOUT <= 7.4) {
-    state = 6;
-    digitalWrite(teensyled, HIGH);
-    tone(buzzer, 1200);
-    delay(400);
-    digitalWrite(teensyled, LOW);
-    noTone(buzzer);
-    delay(400);
-
-  }
 
     // Setting the previous time to the current time
     previousTime = currentTime;
@@ -508,6 +496,7 @@ void launchpoll () {
     digitalWrite(ledred, HIGH);
     digitalWrite(ledblu, LOW);
 
+
   }
 }
 void abortsystem () {
@@ -559,4 +548,18 @@ void altitudeOffset () {
     altitude2 = altitude;
   }
   altitudefinal = altitude - altitude2;
+}
+
+void voltageWarning () {
+       // If the system voltage is less than 7.6
+  if (voltageDividerOUT <= 7.4) {
+    state = 6;
+    digitalWrite(teensyled, HIGH);
+    tone(buzzer, 1200);
+    delay(400);
+    digitalWrite(teensyled, LOW);
+    noTone(buzzer);
+    delay(400);
+
+  }
 }
