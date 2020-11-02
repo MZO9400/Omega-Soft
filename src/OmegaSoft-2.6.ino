@@ -31,6 +31,8 @@ BMP280_DEV bmp280;
 
 float temperature, pressure, altitude, altitudefinal, altitude2;
 
+float altsetpoint = 160;
+
 // PID Controller Output
 double PIDX, PIDY;
 
@@ -132,9 +134,6 @@ double kp = 0.09;
 double ki = 0.06;
 double kd = 0.0275;
 
-// Setting the system state to 0
-int state = 0;
-
 //Timer settings for dataLogging in Hz
 unsigned long previousLog = 0;
 const long logInterval = 150;
@@ -162,6 +161,18 @@ int launchsite_alt = 0;
 // Servo frequency
 int servoFrequency = 333;
 
+enum FlightState {
+  PAD_IDLE = 0,
+  POWERED_FLIGHT = 1,
+  MECO = 2,
+  APOGEE = 3,
+  CHUTE_DEPLOYMENT = 4,
+  ABORT = 5,
+  VOLTAGE_WARNING = 6
+};
+
+FlightState flightState = PAD_IDLE;
+
 void setup() {
   // Starting serial communication with your computer
   Serial.begin(9600);
@@ -181,6 +192,7 @@ void setup() {
   analogWriteFrequency(2, servoFrequency);
   analogWriteFrequency(3, servoFrequency);
 
+
   // Setting all of the digital pins to output
   pinMode(ledblu, OUTPUT);
   pinMode(ledgrn, OUTPUT);
@@ -195,6 +207,7 @@ void setup() {
 
   startup();
   sdstart();
+  sdSettings();
   launchpoll();
 
 }
@@ -297,8 +310,8 @@ void pidcompute () {
   // Defining "I"
   pidX_i = ki * (pidX_i + errorX * dt);
   pidY_i = ki * (pidY_i + errorY * dt);
-
 }
+
   // Adding it all up
   PIDX = pidX_p + pidX_i + pidX_d;
   PIDY = pidY_p + pidY_i + pidY_d;
@@ -360,10 +373,10 @@ void launchdetect () {
   // Read from the accelerometers
   accel.readSensor();
   digitalWrite(statusled, HIGH);
-  if (state == 0 && accel.getAccelX_mss() > 13) {
-    state++;
+  if (PAD_IDLE && accel.getAccelX_mss() > 13) {
+    flightState = POWERED_FLIGHT;
   }
-  if (state == 1) {
+  if (POWERED_FLIGHT) {
     // Read from the gyroscopes
     gyro.readSensor();
     digitalWrite(ledred, LOW);
@@ -383,6 +396,52 @@ void sdstart () {
   Serial.println("SD Card Initialized.");
 }
 
+void sdSettings () {
+  String settingstring = "";
+
+  settingstring += "Abort Offsets: ";
+  settingstring += (abortoffset);
+  settingstring += ", ";
+
+  settingstring += "Log Interval: ";
+  settingstring += (logInterval);
+  settingstring += ", ";
+
+  settingstring += "Burnout Time Delay: ";
+  settingstring += (burnoutTimeInterval);
+  settingstring += ", ";
+
+  settingstring += "Time after launch when burnout is activated: ";
+  settingstring += (burnoutInterval);
+  settingstring += ", ";
+
+  settingstring += "Voltage Multiplier: ";
+  settingstring += (voltageDividerMultplier);
+  settingstring += ", ";
+
+  settingstring += "Deployment Altitude: ";
+  settingstring += (altsetpoint);
+  settingstring += ", ";
+
+  settingstring += "Kp: ";
+  settingstring += (kp);
+  settingstring += ", ";
+
+  settingstring += "Ki: ";
+  settingstring += (ki);
+  settingstring += ", ";
+
+  settingstring += "Kd: ";
+  settingstring += (kd);
+
+  File settingFile = SD.open("log002.txt", FILE_WRITE);
+
+  if (settingFile) {
+      settingFile.println(settingstring);
+      settingFile.close();
+  }
+}
+
 void sdwrite () {
   String datastring = "";
 
@@ -395,7 +454,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "System_State,";
-  datastring += String(state);
+  datastring += String(flightState);
   datastring += ",";
 
   datastring += "Z_Axis_Accel,";
@@ -443,9 +502,9 @@ void sdwrite () {
 }
 
 void burnout () {
-  if ((state == 1) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
+  if ((POWERED_FLIGHT) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
-    state++;
+    flightState = MECO;
     digitalWrite(teensyled, LOW);
     digitalWrite(ledred, LOW);
     digitalWrite(ledblu, LOW);
@@ -453,17 +512,17 @@ void burnout () {
     Serial.println("Burnout Detected");
   }
 
-  if ((state == 2) && burnoutTime > burnoutTimeInterval) {
+  if ((MECO) && burnoutTime > burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
-    state++;
+    flightState = APOGEE;
     digitalWrite(ledgrn, LOW);
     Serial.println("Apogee Detected");
     tone(buzzer, 1200, 200);
   }
 
-  if (state == 3 && (altitudefinal - launchsite_alt) <= -1) {
-    // Chute deployment
-    state++;
+  if (APOGEE && (altitudefinal - launchsite_alt) <= altsetpoint) {
+    // Chute deployment; changing the system state to state 4
+    flightState = CHUTE_DEPLOYMENT;
     digitalWrite(pyro1, HIGH);
     digitalWrite(ledred, HIGH);
   }
@@ -471,7 +530,7 @@ void burnout () {
 
 void launchpoll () {
   delay(750);
-  if (state == 0) {
+  if (PAD_IDLE) {
     int status;
     //Checking to see if the Teensy can communicate with the BMI088 accelerometer
     status = accel.begin();
@@ -501,7 +560,7 @@ void launchpoll () {
   }
 }
 void abortsystem () {
-  if ((state == 1) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset) && (flightTime > burnoutInterval)) {
+  if ((POWERED_FLIGHT) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
     Serial.println("Abort Detected.");
     digitalWrite(ledblu, HIGH);
     digitalWrite(ledgrn, LOW);
@@ -509,7 +568,7 @@ void abortsystem () {
     digitalWrite(teensyled, LOW);
 
     // Changing the system state to 5
-    state = 5;
+    flightState = ABORT;
 
     // Firing the pyrotechnic channel
     digitalWrite(pyro1, HIGH);
@@ -531,13 +590,13 @@ void voltage () {
 
 void inflightTimer () {
   //Timer to wait a certain time after launch before burnout is activated
-  if (state == 0) {
+  if (PAD_IDLE) {
     liftoffTime = currentTime;
   }
   flightTime = currentTime - liftoffTime;
 
   //Timer that waits a certain time after burnout to deploy the chutes
-  if (state == 0 || state == 1) {
+  if (PAD_IDLE || POWERED_FLIGHT) {
     burnoutTime_2 = currentTime_2;
   }
   burnoutTime = currentTime_2 - burnoutTime_2;
@@ -545,16 +604,16 @@ void inflightTimer () {
 
 void altitudeOffset () {
   // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
-  if (state == 0) {
+  if (PAD_IDLE) {
     altitude2 = altitude;
   }
   altitudefinal = altitude - altitude2;
 }
 
 void voltageWarning () {
-       // If the system voltage is less than 7.6
+  // If the system voltage is less than 7.6
   if (voltageDividerOUT <= 7.4) {
-    state = 6;
+    flightState = VOLTAGE_WARNING;
     digitalWrite(teensyled, HIGH);
     tone(buzzer, 1200);
     delay(400);
@@ -572,3 +631,5 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   Ax = -asin(AcZ / totalAccel);
   Ay = asin(AcX / totalAccel);
 }
+
+
