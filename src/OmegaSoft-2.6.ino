@@ -284,24 +284,33 @@ void pidcompute () {
   errorX = Ax - desired_angleX;
   errorY = Ay - desired_angleY;
 
-  //Defining "P"
+  // Defining "P"
   pidX_p = kp * errorX;
   pidY_p = kp * errorY;
 
-  //Defining "D"
+  // Defining "D"
   pidX_d = kd * ((errorX - previous_errorX) / dt);
   pidY_d = kd * ((errorY - previous_errorY) / dt);
 
-  //Defining "I"
+// If the time since launch is less than 1 get the integral 
+  if (flightTime <= 1) {
+  // Defining "I"
   pidX_i = ki * (pidX_i + errorX * dt);
   pidY_i = ki * (pidY_i + errorY * dt);
 
-  //Adding it all up
+}
+  // Adding it all up
   PIDX = pidX_p + pidX_i + pidX_d;
   PIDY = pidY_p + pidY_i + pidY_d;
 
   pwmY = servodirection * ((PIDY * servoX_gear_ratio) + servoX_offset);
   pwmX = servodirection * ((PIDX * servoY_gear_ratio) + servoY_offset);
+  
+  // Constraining the PID 
+  pwmX = max(pwmX, (servoY_offset - 30)); 
+  pwmX = min(pwmX, (servoY_offset + 30)); 
+  pwmY = max(pwmY, (servoX_offset - 30)); 
+  pwmY = min(pwmY, (servoX_offset + 30)); 
 
   //Servo outputs
   servoX.write(pwmX);
@@ -309,6 +318,7 @@ void pidcompute () {
 }
 
 void startup () {
+  delay(750);
   digitalWrite(ledblu, HIGH);
   digitalWrite(ledred, HIGH);
   digitalWrite(ledgrn, HIGH);
@@ -316,35 +326,33 @@ void startup () {
   delay(800);
   noTone(buzzer);
   digitalWrite(ledgrn, LOW);
-  tone(buzzer, 1150);
+  tone(buzzer, 1100);
   delay(400);
   noTone(buzzer);
-  digitalWrite(ledred, LOW);
-  digitalWrite(ledblu, HIGH);
   servoX.write(servoXstart);
   servoY.write(servoYstart);
   delay(500);
-  digitalWrite(ledblu, LOW);
-  digitalWrite(ledgrn, HIGH);
   servoX.write(servoXstart + servo_start_offset);
-  delay(400);
-  digitalWrite(ledgrn, LOW);
-  digitalWrite(ledred, HIGH);
+  delay(200);
   servoX.write(servoXstart - servo_start_offset);
   delay(200);
   servoX.write(servoXstart);
-  delay(200);
-  digitalWrite(ledred, LOW);
-  digitalWrite(ledblu, HIGH);
-  tone(buzzer, 1100);
   servoY.write(servoYstart + servo_start_offset);
-  delay(400);
-  tone(buzzer, 1150);
-  servoY.write(servoYstart - servo_start_offset);
   delay(200);
-  tone(buzzer, 1200);
-  servoY.write(servoYstart);
+  servoY.write(servoYstart - servo_start_offset);
   delay(400);
+  servoY.write(servoYstart);
+  tone(buzzer, 1100);
+  digitalWrite(ledred, LOW);
+  delay(150);
+  tone(buzzer, 1200);
+  digitalWrite(ledred, HIGH);
+  digitalWrite(ledblu, LOW);
+  delay(150);
+  tone(buzzer, 1300);
+  digitalWrite(ledred, LOW); 
+  digitalWrite(ledgrn, HIGH);
+  delay(200);
   noTone(buzzer);
 }
 
@@ -370,7 +378,6 @@ void sdstart () {
     // Checking to see if the Teensy can communicate with the SD card
     Serial.println("SD card not present, please insert the card into the Teensy.");
     digitalWrite(errorled, HIGH);
-    // Don't do anything else
     return;
   }
   Serial.println("SD Card Initialized.");
@@ -558,12 +565,9 @@ void voltageWarning () {
   }
 }
 
-    
 void calibrateGyroscopes(float AcX, float AcY, float AcZ) { 
   // Calculating the gyro offsets
-  AcX = accel.getAccelY_mss();
-  AcY = accel.getAccelZ_mss();
-  AcZ = accel.getAccelX_mss();
+  accel.readSensor();
   float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
   Ax = -asin(AcZ / totalAccel);
   Ay = asin(AcX / totalAccel);
