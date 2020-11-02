@@ -90,8 +90,8 @@ int servoYstart = servodirection * servoX_offset;
 int servo_start_offset = 8;
 
 //Ratio between servo gear and tvc mount
-float servoX_gear_ratio = 4;
-float servoY_gear_ratio = 4;
+float servoX_gear_ratio = 4.5;
+float servoY_gear_ratio = 3.5;
 
 // Defining Digital Pins
 int ledred = 0;
@@ -130,9 +130,9 @@ float pidY_d = 0;
 
 
 //PID Gains
-double kp = 0.09;
+double kp = 0.07;
 double ki = 0.06;
-double kd = 0.0275;
+double kd = 0.025;
 
 //Timer settings for dataLogging in Hz
 unsigned long previousLog = 0;
@@ -305,12 +305,10 @@ void pidcompute () {
   pidX_d = kd * ((errorX - previous_errorX) / dt);
   pidY_d = kd * ((errorY - previous_errorY) / dt);
 
-// If the time since launch is less than 1 get the integral 
-  if (flightTime <= 1) {
   // Defining "I"
   pidX_i = ki * (pidX_i + errorX * dt);
   pidY_i = ki * (pidY_i + errorY * dt);
-}
+
 
   // Adding it all up
   PIDX = pidX_p + pidX_i + pidX_d;
@@ -319,12 +317,6 @@ void pidcompute () {
   pwmY = servodirection * ((PIDY * servoX_gear_ratio) + servoX_offset);
   pwmX = servodirection * ((PIDX * servoY_gear_ratio) + servoY_offset);
   
-  // Constraining the PID 
-  pwmX = max(pwmX, (servoY_offset - 30)); 
-  pwmX = min(pwmX, (servoY_offset + 30)); 
-  pwmY = max(pwmY, (servoX_offset - 30)); 
-  pwmY = min(pwmY, (servoX_offset + 30)); 
-
   //Servo outputs
   servoX.write(pwmX);
   servoY.write(pwmY);
@@ -346,14 +338,15 @@ void startup () {
   servoY.write(servoYstart);
   delay(500);
   servoX.write(servoXstart + servo_start_offset);
-  delay(200);
+  delay(400);
   servoX.write(servoXstart - servo_start_offset);
   delay(200);
   servoX.write(servoXstart);
-  servoY.write(servoYstart + servo_start_offset);
-  delay(200);
-  servoY.write(servoYstart - servo_start_offset);
   delay(400);
+  servoY.write(servoYstart + servo_start_offset);
+  delay(400);
+  servoY.write(servoYstart - servo_start_offset);
+  delay(200);
   servoY.write(servoYstart);
   tone(buzzer, 1100);
   digitalWrite(ledred, LOW);
@@ -373,10 +366,10 @@ void launchdetect () {
   // Read from the accelerometers
   accel.readSensor();
   digitalWrite(statusled, HIGH);
-  if (PAD_IDLE && accel.getAccelX_mss() > 13) {
+  if (flightState == PAD_IDLE && accel.getAccelX_mss() > 13) {
     flightState = POWERED_FLIGHT;
   }
-  if (POWERED_FLIGHT) {
+  if (flightState == POWERED_FLIGHT) {
     // Read from the gyroscopes
     gyro.readSensor();
     digitalWrite(ledred, LOW);
@@ -502,7 +495,7 @@ void sdwrite () {
 }
 
 void burnout () {
-  if ((POWERED_FLIGHT) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
+  if ((flightState == POWERED_FLIGHT) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     flightState = MECO;
     digitalWrite(teensyled, LOW);
@@ -512,7 +505,7 @@ void burnout () {
     Serial.println("Burnout Detected");
   }
 
-  if ((MECO) && burnoutTime > burnoutTimeInterval) {
+  if ((flightState == MECO) && burnoutTime > burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
     flightState = APOGEE;
     digitalWrite(ledgrn, LOW);
@@ -520,17 +513,18 @@ void burnout () {
     tone(buzzer, 1200, 200);
   }
 
-  if (APOGEE && (altitudefinal - launchsite_alt) <= altsetpoint) {
+  if ((flightState == APOGEE) && (altitudefinal - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    digitalWrite(pyro1, HIGH);
+    //digitalWrite(pyro1, HIGH);
+    //digitalWrite(pyro2, HIGH);
     digitalWrite(ledred, HIGH);
   }
 }
 
 void launchpoll () {
   delay(750);
-  if (PAD_IDLE) {
+  if (flightState == PAD_IDLE) {
     int status;
     //Checking to see if the Teensy can communicate with the BMI088 accelerometer
     status = accel.begin();
@@ -560,7 +554,7 @@ void launchpoll () {
   }
 }
 void abortsystem () {
-  if ((POWERED_FLIGHT) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
+  if ((flightState == POWERED_FLIGHT) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
     Serial.println("Abort Detected.");
     digitalWrite(ledblu, HIGH);
     digitalWrite(ledgrn, LOW);
@@ -571,7 +565,7 @@ void abortsystem () {
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    digitalWrite(pyro1, HIGH);
+    //digitalWrite(pyro1, HIGH);
     tone(buzzer, 1200, 400);
   }
 }
@@ -590,13 +584,13 @@ void voltage () {
 
 void inflightTimer () {
   //Timer to wait a certain time after launch before burnout is activated
-  if (PAD_IDLE) {
+  if (flightState == PAD_IDLE) {
     liftoffTime = currentTime;
   }
   flightTime = currentTime - liftoffTime;
 
   //Timer that waits a certain time after burnout to deploy the chutes
-  if (PAD_IDLE || POWERED_FLIGHT) {
+  if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT) {
     burnoutTime_2 = currentTime_2;
   }
   burnoutTime = currentTime_2 - burnoutTime_2;
@@ -604,7 +598,7 @@ void inflightTimer () {
 
 void altitudeOffset () {
   // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
-  if (PAD_IDLE) {
+  if (flightState == PAD_IDLE) {
     altitude2 = altitude;
   }
   altitudefinal = altitude - altitude2;
