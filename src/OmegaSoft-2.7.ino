@@ -33,6 +33,8 @@ float temperature, pressure, altitude, altitudefinal, altitude2;
 
 float altsetpoint = 160;
 
+float pyroAltsetpoint = 3;
+
 // PID Controller Output
 double PIDX, PIDY;
 
@@ -106,6 +108,10 @@ int voltagedivider = 0;
 int buzzer = 15;
 int teensyled = 13;
 
+// Special Events
+int pyrocheckbool = 0;
+
+
 // Defining the servo pins as integers
 Servo servoX;
 Servo servoY;
@@ -168,7 +174,8 @@ enum FlightState {
   APOGEE = 3,
   CHUTE_DEPLOYMENT = 4,
   ABORT = 5,
-  VOLTAGE_WARNING = 6
+  VOLTAGE_WARNING = 6,
+  PYRO_CHECK = 7
 };
 
 FlightState flightState = PAD_IDLE;
@@ -227,6 +234,7 @@ void loop() {
     burnout();
     abortsystem();
     voltage();
+    pyroChecking();
 
     // Setting the previous time to the current time
     previousTime = currentTime;
@@ -513,12 +521,14 @@ void burnout () {
     tone(buzzer, 1200, 200);
   }
 
-  if ((flightState == APOGEE) && (altitudefinal - launchsite_alt) <= altsetpoint) {
+  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (altitudefinal - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
+    if (altitudefinal >= pyroAltsetpoint) {
     digitalWrite(pyro1, HIGH);
     digitalWrite(pyro2, HIGH);
     digitalWrite(pyro3, HIGH);
+  }
     digitalWrite(ledred, HIGH);
   }
 }
@@ -629,4 +639,15 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   Ay = asin(AcX / totalAccel);
 }
 
+void pyroChecking () {
+  if (pyrocheckbool == 1) {
+    flightState = PYRO_CHECK;
+    digitalWrite(pyro1, HIGH);
+    delay(4000);
+    digitalWrite(pyro2, HIGH);
+    delay(4000);
+    digitalWrite(pyro3, HIGH);
+    delay(4000);
+  }
+}
 
