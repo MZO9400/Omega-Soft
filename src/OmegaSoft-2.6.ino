@@ -79,7 +79,7 @@ int desired_angleY = 0;
 int servodirection = -1;
 
 //Offsets for tuning
-int servoY_offset = servodirection * 115;
+int servoY_offset = servodirection * 114;
 int servoX_offset = servodirection * 132;
 
 //Position of servos through the startup function
@@ -516,8 +516,9 @@ void burnout () {
   if ((flightState == APOGEE) && (altitudefinal - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    //digitalWrite(pyro1, HIGH);
-    //digitalWrite(pyro2, HIGH);
+    digitalWrite(pyro1, HIGH);
+    digitalWrite(pyro2, HIGH);
+    digitalWrite(pyro3, HIGH);
     digitalWrite(ledred, HIGH);
   }
 }
@@ -565,7 +566,9 @@ void abortsystem () {
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    //digitalWrite(pyro1, HIGH);
+    digitalWrite(pyro1, HIGH);
+    digitalWrite(pyro2, HIGH);
+    digitalWrite(pyro3, HIGH);
     tone(buzzer, 1200, 400);
   }
 }
