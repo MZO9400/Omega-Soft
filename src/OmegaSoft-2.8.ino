@@ -31,7 +31,7 @@ BMP280_DEV bmp280;
 
 float temperature, pressure, altitude, altitudefinal, altitude2;
 
-float altsetpoint = 160;
+float altsetpoint = 120;
 
 float pyroAltsetpoint = 3;
 
@@ -81,8 +81,8 @@ int desired_angleY = 0;
 int servodirection = -1;
 
 //Offsets for tuning
-int servoY_offset = servodirection * 114;
-int servoX_offset = servodirection * 132;
+int servoY_offset = servodirection * 117.75;
+int servoX_offset = servodirection * 131;
 
 //Position of servos through the startup function
 int servoXstart = servodirection * servoY_offset;
@@ -108,10 +108,6 @@ int voltagedivider = 0;
 int buzzer = 15;
 int teensyled = 13;
 
-// Special Events
-int pyrocheckbool = 0;
-
-
 // Defining the servo pins as integers
 Servo servoX;
 Servo servoY;
@@ -136,9 +132,9 @@ float pidY_d = 0;
 
 
 //PID Gains
-double kp = 0.07;
-double ki = 0.06;
-double kd = 0.025;
+double kp = 0.09;
+double ki = 0.1;
+double kd = 0.0275;
 
 //Timer settings for dataLogging in Hz
 unsigned long previousLog = 0;
@@ -150,6 +146,7 @@ const long burnoutInterval = 750;
 // Delay after burnout when the flight computer will deploy the chutes
 const long burnoutTimeInterval = 1000;
 
+// Event Timer Variables
 unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 
 // Voltage divider variables
@@ -167,6 +164,37 @@ int launchsite_alt = 0;
 // Servo frequency
 int servoFrequency = 333;
 
+/* Kalman variables
+Change the value of altVariance to make the data smoother or respond faster*/
+float altVariance = 1.12184278324081E-07;  
+float varProcess = 1e-8;
+float PC = 0.0;
+float K = 0.0;
+float UP = 1.0;
+float Xp = 0.0;
+float Zp = 0.0;
+float altEst = 0.0;
+
+// Change the value of altVariance to make the data smoother or respond faster
+float accVariance = 1.12184278324081E-07; 
+float varProcess2 = 1e-8;
+float PC2 = 0.0;
+float K2 = 0.0;
+float UP2 = 1.0;
+float Xp2 = 0.0;
+float Zp2 = 0.0;
+float accEst = 0.0;
+
+// Change the value of altVariance to make the data smoother or respond faster
+float voltVariance = 1.12184278324081E-05; 
+float varProcess3 = 1e-8;
+float PC3 = 0.0;
+float K3 = 0.0;
+float UP3 = 1.0;
+float Xp3 = 0.0;
+float Zp3 = 0.0;
+float voltageEst = 0.0;
+
 enum FlightState {
   PAD_IDLE = 0,
   POWERED_FLIGHT = 1,
@@ -174,8 +202,7 @@ enum FlightState {
   APOGEE = 3,
   CHUTE_DEPLOYMENT = 4,
   ABORT = 5,
-  VOLTAGE_WARNING = 6,
-  PYRO_CHECK = 7
+  VOLTAGE_WARNING = 6
 };
 
 FlightState flightState = PAD_IDLE;
@@ -234,7 +261,8 @@ void loop() {
     burnout();
     abortsystem();
     voltage();
-    pyroChecking();
+    altKalman();
+    accZKalman();
 
     // Setting the previous time to the current time
     previousTime = currentTime;
@@ -454,12 +482,20 @@ void sdwrite () {
   datastring += String(Ay);
   datastring += ",";
 
+  datastring += "Roll,";
+  datastring += String(GyroAngleZ);
+  datastring += ",";
+
   datastring += "System_State,";
   datastring += String(flightState);
   datastring += ",";
 
-  datastring += "Z_Axis_Accel,";
+  datastring += "Raw_Z_Axis_Accel,";
   datastring += String(accel.getAccelZ_mss());
+  datastring += ",";
+
+  datastring += "Filtered_Z_Axis_Accel,";
+  datastring += String(accEst);
   datastring += ",";
 
   datastring += "Servo_X_POS,";
@@ -470,19 +506,27 @@ void sdwrite () {
   datastring += String(servoY.read());
   datastring += ",";
 
-  datastring += "Voltage,";
+  datastring += "Raw_Voltage,";
   datastring += String(voltageDividerOUT);
   datastring += ",";
 
-  datastring += "IMU Temp,";
+  datastring += "Filtered_Voltage,";
+  datastring += String(voltageEst);
+  datastring += ",";
+
+  datastring += "IMU_Temp,";
   datastring += String(accel.getTemperature_C());
   datastring += ",";
 
-  datastring += "Barometer Temp,";
+  datastring += "Barometer_Temp,";
   datastring += String(temperature);
   datastring += ",";
 
-  datastring += "Altitude,";
+  datastring += "Filtered_Altitude,";
+  datastring += String(altEst);
+  datastring += ",";
+
+  datastring += "Raw_Altitude,";
   datastring += String(altitudefinal);
   datastring += ",";
 
@@ -503,7 +547,7 @@ void sdwrite () {
 }
 
 void burnout () {
-  if ((flightState == POWERED_FLIGHT) && accel.getAccelX_mss() <= 2 && (flightTime > burnoutInterval)) {
+  if ((flightState == POWERED_FLIGHT) && accEst <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     flightState = MECO;
     digitalWrite(teensyled, LOW);
@@ -521,14 +565,12 @@ void burnout () {
     tone(buzzer, 1200, 200);
   }
 
-  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (altitudefinal - launchsite_alt) <= altsetpoint) {
+  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (altEst - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    if (altitudefinal >= pyroAltsetpoint) {
     digitalWrite(pyro1, HIGH);
     digitalWrite(pyro2, HIGH);
     digitalWrite(pyro3, HIGH);
-  }
     digitalWrite(ledred, HIGH);
   }
 }
@@ -593,6 +635,9 @@ void voltage () {
   // Multiply the output from the mapping function to get the true voltage
   voltageDividerOUT = voltageDividermap * voltageDividerMultplier;
 
+  // Calls the function to filter the voltage data
+  voltageKalman();
+
 }
 
 void inflightTimer () {
@@ -639,15 +684,56 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   Ay = asin(AcX / totalAccel);
 }
 
-void pyroChecking () {
-  if (pyrocheckbool == 1) {
-    flightState = PYRO_CHECK;
-    digitalWrite(pyro1, HIGH);
-    delay(4000);
-    digitalWrite(pyro2, HIGH);
-    delay(4000);
-    digitalWrite(pyro3, HIGH);
-    delay(4000);
-  }
+void altKalman () {
+  // Predict the next covariance
+  PC = UP + varProcess;
+
+  // Compute the kalman gain
+  K = PC /(PC + altVariance);
+
+  // Update the covariance 
+  UP = (1 - K) * PC;
+
+  // Re-define variables
+  Xp = altEst;
+  Zp = Xp;
+
+  // Final altitude estimation
+  altEst = K * (altitudefinal - Zp) + Xp;   
+}
+
+void accZKalman () {
+  // Predict the next covariance
+  PC2 = UP2 + varProcess2;
+  
+  // Compute the kalman gain
+  K2 = PC2 /(PC2 + accVariance);   
+
+  // Update the covariance 
+  UP2 = (1 - K2) * PC2;
+
+  // Re-define variables
+  Xp2 = accEst;
+  Zp2 = Xp2;
+  // Final acceleration estimation
+  accEst = K2 * (accel.getAccelX_mss() - Zp2) + Xp2;  
+}
+
+void voltageKalman () {
+  // Predict the next covariance
+  PC3 = UP3 + varProcess3;
+
+  // Compute the kalman gain
+  K3 = PC3 /(PC3 + voltVariance); 
+
+  // Update the covariance   
+  UP3 = (1 - K3) * PC3;
+
+  // Re-define variables
+  Xp3 = voltageEst;
+  Zp3 = Xp3;
+
+  // Final voltage estimation
+  voltageEst = K3 * (voltageDividerOUT - Zp3) + Xp3;  
 }
 
