@@ -96,9 +96,6 @@ float servoX_gear_ratio = 4.5;
 float servoY_gear_ratio = 3.5;
 
 // Defining Digital Pins
-int ledred = 0;
-int ledblu = 4;
-int ledgrn = 5;
 int statusled = 9;
 int errorled = 1;
 int pyro1 = 34;
@@ -164,6 +161,65 @@ int launchsite_alt = 0;
 // Servo frequency
 int servoFrequency = 333;
 
+struct RGB {
+  int r;
+  int g;
+  int b;
+};
+
+class RGB_LED {
+  private:
+    // Create the three variables for each pin on an RGB LED
+    int red;
+    int green;
+    int blue;
+
+  public:
+
+    // Constructor for the class
+    RGB_LED(int newRedPin, int newGreenPin, int newBluePin) {
+      // Set the pins in private to the new pins
+      red = newRedPin;
+      blue = newBluePin;
+      green = newGreenPin;
+
+      // Set the pin mode of each pin to output
+      pinMode(red, OUTPUT);
+      pinMode(green, OUTPUT);
+      pinMode(blue, OUTPUT);
+    }
+
+    void Color(int newRed, int newGreen, int newBlue) {
+      analogWrite(red, newRed);
+      analogWrite(green, newGreen);
+      analogWrite(blue, newBlue);
+    }
+    
+    void Color(RGB rgb) {
+      analogWrite(red, rgb.r);
+      analogWrite(green, rgb.g);
+      analogWrite(blue, rgb.b);
+    }
+
+    void off() {
+      // Turn each led pin off
+      analogWrite(red, 0);
+      analogWrite(green, 0);
+      analogWrite(blue, 0);
+    }
+};
+
+// RGB Object
+RGB_LED LED(0, 5, 4);
+
+// All possible RGB LED Colors
+RGB yellow = {255, 255, 0};
+RGB red = {255, 0, 0};
+RGB green = {0, 255, 0};
+RGB blue = {0, 0, 255};
+RGB purple = {255, 0, 255};
+RGB white = {255, 255, 255};
+
 /* Kalman variables
 Change the value of altVariance to make the data smoother or respond faster*/
 float altVariance = 1.12184278324081E-07;  
@@ -175,7 +231,7 @@ float Xp = 0.0;
 float Zp = 0.0;
 float altEst = 0.0;
 
-// Change the value of altVariance to make the data smoother or respond faster
+// Change the value of accVariance to make the data smoother or respond faster
 float accVariance = 1.12184278324081E-07; 
 float varProcess2 = 1e-8;
 float PC2 = 0.0;
@@ -185,7 +241,7 @@ float Xp2 = 0.0;
 float Zp2 = 0.0;
 float accEst = 0.0;
 
-// Change the value of altVariance to make the data smoother or respond faster
+// Change the value of voltVariance to make the data smoother or respond faster
 float voltVariance = 1.12184278324081E-05; 
 float varProcess3 = 1e-8;
 float PC3 = 0.0;
@@ -218,6 +274,10 @@ void setup() {
   servoX.attach(2);
   servoY.attach(3);
 
+  // Writing servos to their start posistions
+  servoX.write(servoXstart);
+  servoY.write(servoYstart);
+
   // Starting communication with the onboard BMP280
   bmp280.begin();
   bmp280.startNormalConversion();
@@ -225,12 +285,8 @@ void setup() {
   // Setting the servo frequency
   analogWriteFrequency(2, servoFrequency);
   analogWriteFrequency(3, servoFrequency);
-
-
+  
   // Setting all of the digital pins to output
-  pinMode(ledblu, OUTPUT);
-  pinMode(ledgrn, OUTPUT);
-  pinMode(ledred, OUTPUT);
   pinMode(buzzer, OUTPUT);
   pinMode(pyro1, OUTPUT);
   pinMode(pyro2, OUTPUT);
@@ -243,7 +299,6 @@ void setup() {
   sdstart();
   sdSettings();
   launchpoll();
-
 }
 
 void loop() {
@@ -359,20 +414,17 @@ void pidcompute () {
 }
 
 void startup () {
-  delay(750);
-  digitalWrite(ledblu, HIGH);
-  digitalWrite(ledred, HIGH);
-  digitalWrite(ledgrn, HIGH);
+  delay(500);
+  LED.Color(white);
   tone(buzzer, 1050);
   delay(800);
   noTone(buzzer);
-  digitalWrite(ledgrn, LOW);
+  LED.Color(purple);
   tone(buzzer, 1100);
   delay(400);
   noTone(buzzer);
-  servoX.write(servoXstart);
-  servoY.write(servoYstart);
   delay(500);
+
   servoX.write(servoXstart + servo_start_offset);
   delay(400);
   servoX.write(servoXstart - servo_start_offset);
@@ -384,16 +436,15 @@ void startup () {
   servoY.write(servoYstart - servo_start_offset);
   delay(200);
   servoY.write(servoYstart);
+  
   tone(buzzer, 1100);
-  digitalWrite(ledred, LOW);
+  LED.Color(blue);
   delay(150);
   tone(buzzer, 1200);
-  digitalWrite(ledred, HIGH);
-  digitalWrite(ledblu, LOW);
+  LED.Color(red);
   delay(150);
   tone(buzzer, 1300);
-  digitalWrite(ledred, LOW); 
-  digitalWrite(ledgrn, HIGH);
+  LED.Color(green);
   delay(200);
   noTone(buzzer);
 }
@@ -408,9 +459,7 @@ void launchdetect () {
   if (flightState == POWERED_FLIGHT) {
     // Read from the gyroscopes
     gyro.readSensor();
-    digitalWrite(ledred, LOW);
-    digitalWrite(ledgrn, LOW);
-    digitalWrite(ledblu, HIGH);
+    LED.Color(blue);
     rotationmatrices();
   }
 }
@@ -550,17 +599,15 @@ void burnout () {
   if ((flightState == POWERED_FLIGHT) && accEst <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     flightState = MECO;
-    digitalWrite(teensyled, LOW);
-    digitalWrite(ledred, LOW);
-    digitalWrite(ledblu, LOW);
-    digitalWrite(ledgrn, HIGH);
+    digitalWrite(teensyled, LOW); 
+    LED.Color(green);
     Serial.println("Burnout Detected");
   }
 
   if ((flightState == MECO) && burnoutTime > burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
     flightState = APOGEE;
-    digitalWrite(ledgrn, LOW);
+    LED.off();
     Serial.println("Apogee Detected");
     tone(buzzer, 1200, 200);
   }
@@ -571,7 +618,7 @@ void burnout () {
     digitalWrite(pyro1, HIGH);
     digitalWrite(pyro2, HIGH);
     digitalWrite(pyro3, HIGH);
-    digitalWrite(ledred, HIGH);
+    LED.Color(red);
   }
 }
 
@@ -599,9 +646,7 @@ void launchpoll () {
 
     calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
     Serial.println("Gyroscopes have been calibrated.");
-    digitalWrite(ledgrn, HIGH);
-    digitalWrite(ledred, HIGH);
-    digitalWrite(ledblu, LOW);
+    LED.Color(yellow);
 
 
   }
@@ -609,9 +654,7 @@ void launchpoll () {
 void abortsystem () {
   if ((flightState == POWERED_FLIGHT) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
     Serial.println("Abort Detected.");
-    digitalWrite(ledblu, HIGH);
-    digitalWrite(ledgrn, LOW);
-    digitalWrite(ledred, HIGH);
+    LED.Color(purple);
     digitalWrite(teensyled, LOW);
 
     // Changing the system state to 5
@@ -689,7 +732,7 @@ void altKalman () {
   PC = UP + varProcess;
 
   // Compute the kalman gain
-  K = PC /(PC + altVariance);
+  K = PC / (PC + altVariance);
 
   // Update the covariance 
   UP = (1 - K) * PC;
@@ -707,7 +750,7 @@ void accZKalman () {
   PC2 = UP2 + varProcess2;
   
   // Compute the kalman gain
-  K2 = PC2 /(PC2 + accVariance);   
+  K2 = PC2 / (PC2 + accVariance);   
 
   // Update the covariance 
   UP2 = (1 - K2) * PC2;
@@ -724,7 +767,7 @@ void voltageKalman () {
   PC3 = UP3 + varProcess3;
 
   // Compute the kalman gain
-  K3 = PC3 /(PC3 + voltVariance); 
+  K3 = PC3 / (PC3 + voltVariance); 
 
   // Update the covariance   
   UP3 = (1 - K3) * PC3;
