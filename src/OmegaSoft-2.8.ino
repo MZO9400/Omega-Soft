@@ -1,6 +1,6 @@
 /* Delta Space Systems
-      Version 2.6
-    October, 25th 2020 */
+      Version 2.8
+    November, 10th 2020 */
 
 /*System State:
    0 = Go/No Go before launch
@@ -22,18 +22,18 @@
 #include <BMP280_DEV.h>
 
 
-/* accel object */
+// Accelerometer Register
 Bmi088Accel accel(Wire, 0x18);
-/* gyro object */
+// Gyroscope Register
 Bmi088Gyro gyro(Wire, 0x68);
 
 BMP280_DEV bmp280;
 
+// BMP280 Variables
 float temperature, pressure, altitude, altitudefinal, altitude2;
 
+// Altitude at which the chutes will deploy
 float altsetpoint = 120;
-
-float pyroAltsetpoint = 3;
 
 // PID Controller Output
 double PIDX, PIDY;
@@ -161,6 +161,7 @@ int launchsite_alt = 0;
 // Servo frequency
 int servoFrequency = 333;
 
+// LED Struct
 struct RGB {
   int r;
   int g;
@@ -436,7 +437,7 @@ void startup () {
   servoY.write(servoYstart - servo_start_offset);
   delay(200);
   servoY.write(servoYstart);
-  
+
   tone(buzzer, 1100);
   LED.Color(blue);
   delay(150);
@@ -707,7 +708,7 @@ void altitudeOffset () {
 
 void voltageWarning () {
   // If the system voltage is less than 7.6
-  if (voltageDividerOUT <= 7.4) {
+  if (voltageEst <= 7.4) {
     flightState = VOLTAGE_WARNING;
     digitalWrite(teensyled, HIGH);
     tone(buzzer, 1200);
