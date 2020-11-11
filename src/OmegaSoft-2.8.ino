@@ -30,7 +30,10 @@ Bmi088Gyro gyro(Wire, 0x68);
 BMP280_DEV bmp280;
 
 // BMP280 Variables
+struct barometer {
 float temperature, pressure, altitude, altitudefinal, altitude2;
+};
+barometer bmp;
 
 // Altitude at which the chutes will deploy
 float altsetpoint = 120;
@@ -44,14 +47,20 @@ double errorX, errorY, previous_errorX, previous_errorY;
 // PWM that gets sent to the servos
 double pwmX, pwmY;
 
+struct localOri {
 // Local Integrated Gyros in Degrees
-double GyroAngleX, GyroAngleY, GyroAngleZ;
+double Ax, Ay, Az;
 
 // Local Integrated Gyros in radians
-double RADGyroX, RADGyroY, RADGyroZ, PreviousGyroX, PreviousGyroY, PreviousGyroZ;
+double RADGyroX, RADGyroY, RADGyroZ; 
+
+// Previous Local Integrated Gyros
+double PreviousGyroX, PreviousGyroY, PreviousGyroZ;
 
 // Difference between beginning of the beginning and end of the loop
 double DifferenceGyroX, DifferenceGyroY, DifferenceGyroZ;
+};
+localOri local;
 
 // Matrix Variables
 double matrix1, matrix2, matrix3, matrix4, matrix5, matrix6, matrix7, matrix8, matrix9;
@@ -63,15 +72,22 @@ double GyroRawX, GyroRawY, GyroRawZ;
 double OreX, OreY, OreZ;
 
 // Setting Orientation Vector
+struct oriVector {
 double OrientationX = 0;
 double OrientationY = 0;
 double OrientationZ = 1;
+};
+oriVector vector;
 
+
+struct globalOri {
 // Global Orientation in radians
 double AxRAD, AyRAD;
 
 // Global Orientation in degrees
 double Ax, Ay;
+};
+globalOri global;
 
 //Upright Angle of the Flight Computer
 int desired_angleX = 0;
@@ -95,7 +111,10 @@ int servo_start_offset = 8;
 float servoX_gear_ratio = 4.5;
 float servoY_gear_ratio = 3.5;
 
+int liftoffThresh = 13;
+
 // Defining Digital Pins
+struct digitalPins {
 int statusled = 9;
 int errorled = 1;
 int pyro1 = 34;
@@ -104,6 +123,8 @@ int pyro3 = 33;
 int voltagedivider = 0;
 int buzzer = 15;
 int teensyled = 13;
+};
+digitalPins digital;
 
 // Defining the servo pins as integers
 Servo servoX;
@@ -210,7 +231,6 @@ class RGB_LED {
     }
 };
 
-// RGB Object
 RGB_LED LED(0, 5, 4);
 
 // All possible RGB LED Colors
@@ -221,15 +241,15 @@ RGB blue = {0, 0, 255};
 RGB purple = {255, 0, 255};
 RGB white = {255, 255, 255};
 
-/* Kalman variables
-Change the value of altVariance to make the data smoother or respond faster*/
+// Kalman variables
+
+struct kalman {
+// Change the value of altVariance to make the data smoother or respond faster
 float altVariance = 1.12184278324081E-07;  
 float varProcess = 1e-8;
 float PC = 0.0;
 float K = 0.0;
 float UP = 1.0;
-float Xp = 0.0;
-float Zp = 0.0;
 float altEst = 0.0;
 
 // Change the value of accVariance to make the data smoother or respond faster
@@ -238,8 +258,6 @@ float varProcess2 = 1e-8;
 float PC2 = 0.0;
 float K2 = 0.0;
 float UP2 = 1.0;
-float Xp2 = 0.0;
-float Zp2 = 0.0;
 float accEst = 0.0;
 
 // Change the value of voltVariance to make the data smoother or respond faster
@@ -248,9 +266,10 @@ float varProcess3 = 1e-8;
 float PC3 = 0.0;
 float K3 = 0.0;
 float UP3 = 1.0;
-float Xp3 = 0.0;
-float Zp3 = 0.0;
 float voltageEst = 0.0;
+};
+kalman kal; 
+
 
 enum FlightState {
   PAD_IDLE = 0,
@@ -261,7 +280,6 @@ enum FlightState {
   ABORT = 5,
   VOLTAGE_WARNING = 6
 };
-
 FlightState flightState = PAD_IDLE;
 
 void setup() {
@@ -288,13 +306,13 @@ void setup() {
   analogWriteFrequency(3, servoFrequency);
   
   // Setting all of the digital pins to output
-  pinMode(buzzer, OUTPUT);
-  pinMode(pyro1, OUTPUT);
-  pinMode(pyro2, OUTPUT);
-  pinMode(pyro3, OUTPUT);
-  pinMode(errorled, OUTPUT);
-  pinMode(statusled, OUTPUT);
-  pinMode(teensyled, OUTPUT);
+  pinMode(digital.buzzer, OUTPUT);
+  pinMode(digital.pyro1, OUTPUT);
+  pinMode(digital.pyro2, OUTPUT);
+  pinMode(digital.pyro3, OUTPUT);
+  pinMode(digital.errorled, OUTPUT);
+  pinMode(digital.statusled, OUTPUT);
+  pinMode(digital.teensyled, OUTPUT);
 
   startup();
   sdstart();
@@ -309,7 +327,7 @@ void loop() {
   dt = (currentTime - previousTime) / 1000;
 
   // Get measurements from the BMP280
-  if (bmp280.getMeasurements(temperature, pressure, altitude)) {
+  if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
     inflightTimer();
     altitudeOffset();
     launchdetect();
@@ -317,8 +335,8 @@ void loop() {
     burnout();
     abortsystem();
     voltage();
-    altKalman();
-    accZKalman();
+    altKalman(kal.altEst);
+    accZKalman(kal.accEst);
 
     // Setting the previous time to the current time
     previousTime = currentTime;
@@ -331,53 +349,53 @@ void rotationmatrices () {
   GyroRawZ = (gyro.getGyroX_rads());
 
   //Integrate over time to get Local Orientation
-  GyroAngleX += GyroRawX * dt;
-  GyroAngleY += GyroRawY * dt;
-  GyroAngleZ += GyroRawZ * dt;
+  local.Ax += GyroRawX * dt;
+  local.Ay += GyroRawY * dt;
+  local.Az += GyroRawZ * dt;
 
-  PreviousGyroX = RADGyroX;
-  PreviousGyroY = RADGyroY;
-  PreviousGyroZ = RADGyroZ;
+  local.PreviousGyroX = local.RADGyroX;
+  local.PreviousGyroY = local.RADGyroY;
+  local.PreviousGyroZ = local.RADGyroZ;
 
-  RADGyroX = GyroAngleX;
-  RADGyroY = GyroAngleY;
-  RADGyroZ = GyroAngleZ;
+  local.RADGyroX = local.Ax;
+  local.RADGyroY = local.Ay;
+  local.RADGyroZ = local.Az;
 
   // Finding the difference between the beginning of beginning and the end of rotationmatrices
-  DifferenceGyroX = (RADGyroX - PreviousGyroX);
-  DifferenceGyroY = (RADGyroY - PreviousGyroY);
-  DifferenceGyroZ = (RADGyroZ - PreviousGyroZ);
+  local.DifferenceGyroX = (local.RADGyroX - local.PreviousGyroX);
+  local.DifferenceGyroY = (local.RADGyroY - local.PreviousGyroY);
+  local.DifferenceGyroZ = (local.RADGyroZ - local.PreviousGyroZ);
 
-  OreX = OrientationX;
-  OreY = OrientationY;
-  OreZ = OrientationZ;
+  OreX = vector.OrientationX;
+  OreY = vector.OrientationY;
+  OreZ = vector.OrientationZ;
 
   //X Matrices
-  matrix1 = (cos(DifferenceGyroZ) * cos(DifferenceGyroY));
-  matrix2 = (((sin(DifferenceGyroZ) * -1) * cos(DifferenceGyroX) + (cos(DifferenceGyroZ)) * sin(DifferenceGyroY) * sin(DifferenceGyroX)));
-  matrix3 = ((sin(DifferenceGyroZ) * sin(DifferenceGyroX) + (cos(DifferenceGyroZ)) * sin(DifferenceGyroY) * cos(DifferenceGyroX)));
+  matrix1 = (cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroY));
+  matrix2 = (((sin(local.DifferenceGyroZ) * -1) * cos(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
+  matrix3 = ((sin(local.DifferenceGyroZ) * sin(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
 
   //Y Matrices
-  matrix4 = sin(DifferenceGyroZ) * cos(DifferenceGyroY);
-  matrix5 = ((cos(DifferenceGyroZ) * cos(DifferenceGyroX) + (sin(DifferenceGyroZ)) * sin(DifferenceGyroY) * sin(DifferenceGyroX)));
-  matrix6 = (((cos(DifferenceGyroZ) * -1) * sin(DifferenceGyroX) + (sin(DifferenceGyroZ)) * sin(DifferenceGyroY) * cos(DifferenceGyroX)));
+  matrix4 = sin(local.DifferenceGyroZ) * cos(local.DifferenceGyroY);
+  matrix5 = ((cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
+  matrix6 = (((cos(local.DifferenceGyroZ) * -1) * sin(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
 
   //Z Matrices
-  matrix7 = (sin(DifferenceGyroY)) * -1;
-  matrix8 = cos(DifferenceGyroY) * sin(DifferenceGyroX);
-  matrix9 = cos(DifferenceGyroY) * cos(DifferenceGyroX);
+  matrix7 = (sin(local.DifferenceGyroY)) * -1;
+  matrix8 = cos(local.DifferenceGyroY) * sin(local.DifferenceGyroX);
+  matrix9 = cos(local.DifferenceGyroY) * cos(local.DifferenceGyroX);
 
-  OrientationX = ((OreX * matrix1)) + ((OreY * matrix2)) + ((OreZ * matrix3));
-  OrientationY = ((OreX * matrix4)) + ((OreY * matrix5)) + ((OreZ * matrix6));
-  OrientationZ = ((OreX * matrix7)) + ((OreY * matrix8)) + ((OreZ * matrix9));
+  vector.OrientationX = ((OreX * matrix1)) + ((OreY * matrix2)) + ((OreZ * matrix3));
+  vector.OrientationY = ((OreX * matrix4)) + ((OreY * matrix5)) + ((OreZ * matrix6));
+  vector.OrientationZ = ((OreX * matrix7)) + ((OreY * matrix8)) + ((OreZ * matrix9));
 
   // Convert to euler angles
-  AxRAD = asin(OrientationX);
-  AyRAD = asin(OrientationY);
+  global.AxRAD = asin(vector.OrientationX);
+  global.AyRAD = asin(vector.OrientationY);
 
   //Convert from radians to degrees
-  Ax = AxRAD * (-180 / PI);
-  Ay = AyRAD * (180 / PI);
+  global.Ax = global.AxRAD * (-180 / PI);
+  global.Ay = global.AyRAD * (180 / PI);
 
   pidcompute();
 }
@@ -386,8 +404,8 @@ void pidcompute () {
   previous_errorX = errorX;
   previous_errorY = errorY;
 
-  errorX = Ax - desired_angleX;
-  errorY = Ay - desired_angleY;
+  errorX = global.Ax - desired_angleX;
+  errorY = global.Ay - desired_angleY;
 
   // Defining "P"
   pidX_p = kp * errorX;
@@ -417,13 +435,13 @@ void pidcompute () {
 void startup () {
   delay(500);
   LED.Color(white);
-  tone(buzzer, 1050);
+  tone(digital.buzzer, 1050);
   delay(800);
-  noTone(buzzer);
+  noTone(digital.buzzer);
   LED.Color(purple);
-  tone(buzzer, 1100);
+  tone(digital.buzzer, 1100);
   delay(400);
-  noTone(buzzer);
+  noTone(digital.buzzer);
   delay(500);
 
   servoX.write(servoXstart + servo_start_offset);
@@ -438,23 +456,23 @@ void startup () {
   delay(200);
   servoY.write(servoYstart);
 
-  tone(buzzer, 1100);
+  tone(digital.buzzer, 1100);
   LED.Color(blue);
   delay(150);
-  tone(buzzer, 1200);
+  tone(digital.buzzer, 1200);
   LED.Color(red);
   delay(150);
-  tone(buzzer, 1300);
+  tone(digital.buzzer, 1300);
   LED.Color(green);
   delay(200);
-  noTone(buzzer);
+  noTone(digital.buzzer);
 }
 
 void launchdetect () {
   // Read from the accelerometers
   accel.readSensor();
-  digitalWrite(statusled, HIGH);
-  if (flightState == PAD_IDLE && accel.getAccelX_mss() > 13) {
+  digitalWrite(digital.statusled, HIGH);
+  if (flightState == PAD_IDLE && accel.getAccelX_mss() > liftoffThresh) {
     flightState = POWERED_FLIGHT;
   }
   if (flightState == POWERED_FLIGHT) {
@@ -469,7 +487,7 @@ void sdstart () {
   if (!SD.begin(chipSelect)) {
     // Checking to see if the Teensy can communicate with the SD card
     Serial.println("SD card not present, please insert the card into the Teensy.");
-    digitalWrite(errorled, HIGH);
+    digitalWrite(digital.errorled, HIGH);
     return;
   }
   Serial.println("SD Card Initialized.");
@@ -525,15 +543,15 @@ void sdwrite () {
   String datastring = "";
 
   datastring += "Pitch,";
-  datastring += String(Ax);
+  datastring += String(global.Ax);
   datastring += ",";
 
   datastring += "Yaw,";
-  datastring += String(Ay);
+  datastring += String(global.Ay);
   datastring += ",";
 
   datastring += "Roll,";
-  datastring += String(GyroAngleZ);
+  datastring += String(local.Az);
   datastring += ",";
 
   datastring += "System_State,";
@@ -545,7 +563,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Filtered_Z_Axis_Accel,";
-  datastring += String(accEst);
+  datastring += String(kal.accEst);
   datastring += ",";
 
   datastring += "Servo_X_POS,";
@@ -561,7 +579,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Filtered_Voltage,";
-  datastring += String(voltageEst);
+  datastring += String(kal.voltageEst);
   datastring += ",";
 
   datastring += "IMU_Temp,";
@@ -569,19 +587,19 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Barometer_Temp,";
-  datastring += String(temperature);
+  datastring += String(bmp.temperature);
   datastring += ",";
 
   datastring += "Filtered_Altitude,";
-  datastring += String(altEst);
+  datastring += String(kal.altEst);
   datastring += ",";
 
   datastring += "Raw_Altitude,";
-  datastring += String(altitudefinal);
+  datastring += String(bmp.altitudefinal);
   datastring += ",";
 
   datastring += "Pressure,";
-  datastring += String(pressure);
+  datastring += String(bmp.pressure);
   datastring += ",";
 
 
@@ -597,10 +615,10 @@ void sdwrite () {
 }
 
 void burnout () {
-  if ((flightState == POWERED_FLIGHT) && accEst <= 2 && (flightTime > burnoutInterval)) {
+  if ((flightState == POWERED_FLIGHT) && kal.accEst <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     flightState = MECO;
-    digitalWrite(teensyled, LOW); 
+    digitalWrite(digital.teensyled, LOW); 
     LED.Color(green);
     Serial.println("Burnout Detected");
   }
@@ -610,15 +628,15 @@ void burnout () {
     flightState = APOGEE;
     LED.off();
     Serial.println("Apogee Detected");
-    tone(buzzer, 1200, 200);
+    tone(digital.buzzer, 1200, 200);
   }
 
-  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (altEst - launchsite_alt) <= altsetpoint) {
+  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    digitalWrite(pyro1, HIGH);
-    digitalWrite(pyro2, HIGH);
-    digitalWrite(pyro3, HIGH);
+    digitalWrite(digital.pyro1, HIGH);
+    digitalWrite(digital.pyro2, HIGH);
+    digitalWrite(digital.pyro3, HIGH);
     LED.Color(red);
   }
 }
@@ -631,7 +649,7 @@ void launchpoll () {
     status = accel.begin();
     if (status < 0) {
       Serial.println("Accel Initialization Error");
-      digitalWrite(errorled, HIGH);
+      digitalWrite(digital.errorled, HIGH);
       while (1) {}
     }
 
@@ -639,7 +657,7 @@ void launchpoll () {
     status = gyro.begin();
     if (status < 0) {
       Serial.println("Gyro Initialization Error");
-      digitalWrite(errorled, HIGH);
+      digitalWrite(digital.errorled, HIGH);
       while (1) {}
     }
     Serial.println("I2C Devices Found!");
@@ -653,25 +671,25 @@ void launchpoll () {
   }
 }
 void abortsystem () {
-  if ((flightState == POWERED_FLIGHT) && (Ax > abortoffset || Ax < -abortoffset) || (Ay > abortoffset || Ay < -abortoffset)) {
+  if ((flightState == POWERED_FLIGHT) && (global.Ax > abortoffset || global.Ax < -abortoffset) || (global.Ay > abortoffset || global.Ay < -abortoffset)) {
     Serial.println("Abort Detected.");
     LED.Color(purple);
-    digitalWrite(teensyled, LOW);
+    digitalWrite(digital.teensyled, LOW);
 
     // Changing the system state to 5
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    digitalWrite(pyro1, HIGH);
-    digitalWrite(pyro2, HIGH);
-    digitalWrite(pyro3, HIGH);
-    tone(buzzer, 1200, 400);
+    digitalWrite(digital.pyro1, HIGH);
+    digitalWrite(digital.pyro2, HIGH);
+    digitalWrite(digital.pyro3, HIGH);
+    tone(digital.buzzer, 1200, 400);
   }
 }
 
 void voltage () {
   // Reading the voltage from the analog pin
-  voltageDividerIN = analogRead(voltagedivider);
+  voltageDividerIN = analogRead(digital.voltagedivider);
 
   // Map the voltage to 3.3V
   voltageDividermap = map(voltageDividerIN, 0, 2048, 0, 3.3);
@@ -680,7 +698,7 @@ void voltage () {
   voltageDividerOUT = voltageDividermap * voltageDividerMultplier;
 
   // Calls the function to filter the voltage data
-  voltageKalman();
+  voltageKalman(kal.voltageEst);
 
 }
 
@@ -701,20 +719,20 @@ void inflightTimer () {
 void altitudeOffset () {
   // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
   if (flightState == PAD_IDLE) {
-    altitude2 = altitude;
+    bmp.altitude2 = bmp.altitude;
   }
-  altitudefinal = altitude - altitude2;
+  bmp.altitudefinal = bmp.altitude - bmp.altitude2;
 }
 
 void voltageWarning () {
   // If the system voltage is less than 7.6
-  if (voltageEst <= 7.4) {
+  if (kal.voltageEst <= 7.4) {
     flightState = VOLTAGE_WARNING;
-    digitalWrite(teensyled, HIGH);
-    tone(buzzer, 1200);
+    digitalWrite(digital.teensyled, HIGH);
+    tone(digital.buzzer, 1200);
     delay(400);
-    digitalWrite(teensyled, LOW);
-    noTone(buzzer);
+    digitalWrite(digital.teensyled, LOW);
+    noTone(digital.buzzer);
     delay(400);
 
   }
@@ -724,60 +742,61 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   // Calculating the gyro offsets
   accel.readSensor();
   float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
-  Ax = -asin(AcZ / totalAccel);
-  Ay = asin(AcX / totalAccel);
+  global.Ax = -asin(AcZ / totalAccel);
+  global.Ay = asin(AcX / totalAccel);
 }
 
-void altKalman () {
+void altKalman (float Xp) {
   // Predict the next covariance
-  PC = UP + varProcess;
+  kal.PC = kal.UP + kal.varProcess;
 
   // Compute the kalman gain
-  K = PC / (PC + altVariance);
+  kal.K = kal.PC / (kal.PC + kal.altVariance);
 
   // Update the covariance 
-  UP = (1 - K) * PC;
+  kal.UP = (1 - kal.K) * kal.PC;
 
   // Re-define variables
-  Xp = altEst;
-  Zp = Xp;
+  Xp = kal.altEst;
+  float Zp = Xp;
 
   // Final altitude estimation
-  altEst = K * (altitudefinal - Zp) + Xp;   
+  kal.altEst = kal.K * (bmp.altitudefinal - Zp) + Xp;   
 }
 
-void accZKalman () {
+void accZKalman (double Xp2) {
   // Predict the next covariance
-  PC2 = UP2 + varProcess2;
+  kal.PC2 = kal.UP2 + kal.varProcess2;
   
   // Compute the kalman gain
-  K2 = PC2 / (PC2 + accVariance);   
+  kal.K2 = kal.PC2 / (kal.PC2 + kal.accVariance);   
 
   // Update the covariance 
-  UP2 = (1 - K2) * PC2;
+  kal.UP2 = (1 - kal.K2) * kal.PC2;
 
   // Re-define variables
-  Xp2 = accEst;
-  Zp2 = Xp2;
+  Xp2 = kal.accEst;
+  float Zp2 = Xp2;
+
   // Final acceleration estimation
-  accEst = K2 * (accel.getAccelX_mss() - Zp2) + Xp2;  
+  kal.accEst = kal.K2 * (accel.getAccelX_mss() - Zp2) + Xp2;  
 }
 
-void voltageKalman () {
+void voltageKalman (float Xp3) {
   // Predict the next covariance
-  PC3 = UP3 + varProcess3;
+  kal.PC3 = kal.UP3 + kal.varProcess3;
 
   // Compute the kalman gain
-  K3 = PC3 / (PC3 + voltVariance); 
+  kal.K3 = kal.PC3 / (kal.PC3 + kal.voltVariance); 
 
   // Update the covariance   
-  UP3 = (1 - K3) * PC3;
+  kal.UP3 = (1 - kal.K3) * kal.PC3;
 
   // Re-define variables
-  Xp3 = voltageEst;
-  Zp3 = Xp3;
+  Xp3 = kal.voltageEst;
+  float Zp3 = Xp3;
 
   // Final voltage estimation
-  voltageEst = K3 * (voltageDividerOUT - Zp3) + Xp3;  
+  kal.voltageEst = kal.K3 * (voltageDividerOUT - Zp3) + Xp3;  
 }
 
