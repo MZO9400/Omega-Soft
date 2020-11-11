@@ -171,7 +171,7 @@ float voltageDividerIN, voltageDividerOUT, voltageDividermap;
 float voltageDividerMultplier = 5.86;
 
 // The degrees that triggers the abort function
-int abortoffset = 45;
+const int abortoffset = 45;
 
 // Launch Site Altitude in Meters(ASL)
 const long launchsite_alt = 0;
