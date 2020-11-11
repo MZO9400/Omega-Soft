@@ -1,8 +1,8 @@
 # Omega-Software
 
-Version 2.7
+Version 2.8
 
-November, 2nd 2020 
+November, 11th 2020 
 
 Software for TVC stabilized rockets!
 
