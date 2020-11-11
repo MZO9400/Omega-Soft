@@ -31,7 +31,7 @@ BMP280_DEV bmp280;
 
 // BMP280 Variables
 struct barometer {
-float temperature, pressure, altitude, altitudefinal, altitude2;
+  float temperature, pressure, altitude, altitudefinal, altitude2;
 };
 barometer bmp;
 
@@ -48,22 +48,22 @@ double errorX, errorY, previous_errorX, previous_errorY;
 double pwmX, pwmY;
 
 struct localOri {
-// Local Integrated Gyros in Degrees
-double Ax, Ay, Az;
+  // Local Integrated Gyros in Degrees
+  double Ax, Ay, Az;
 
-// Local Integrated Gyros in radians
-double RADGyroX, RADGyroY, RADGyroZ; 
+  // Local Integrated Gyros in radians
+  double RADGyroX, RADGyroY, RADGyroZ;
 
-// Previous Local Integrated Gyros
-double PreviousGyroX, PreviousGyroY, PreviousGyroZ;
+  // Previous Local Integrated Gyros
+  double PreviousGyroX, PreviousGyroY, PreviousGyroZ;
 
-// Difference between beginning of the beginning and end of the loop
-double DifferenceGyroX, DifferenceGyroY, DifferenceGyroZ;
+  // Difference between beginning of the beginning and end of the loop
+  double DifferenceGyroX, DifferenceGyroY, DifferenceGyroZ;
 };
 localOri local;
 
-// Matrix Variables
-double matrix1, matrix2, matrix3, matrix4, matrix5, matrix6, matrix7, matrix8, matrix9;
+// Matrix Array
+int matrix[9];
 
 // Local Angular Velocity(Raw Gyros)
 double GyroRawX, GyroRawY, GyroRawZ;
@@ -73,19 +73,18 @@ double OreX, OreY, OreZ;
 
 // Setting Orientation Vector
 struct oriVector {
-double OrientationX = 0;
-double OrientationY = 0;
-double OrientationZ = 1;
+  double OrientationX = 0;
+  double OrientationY = 0;
+  double OrientationZ = 1;
 };
 oriVector vector;
 
-
 struct globalOri {
-// Global Orientation in radians
-double AxRAD, AyRAD;
+  // Global Orientation in radians
+  double AxRAD, AyRAD;
 
-// Global Orientation in degrees
-double Ax, Ay;
+  // Global Orientation in degrees
+  double Ax, Ay;
 };
 globalOri global;
 
@@ -97,8 +96,8 @@ int desired_angleY = 0;
 int servodirection = -1;
 
 //Offsets for tuning
-int servoY_offset = servodirection * 117.75;
-int servoX_offset = servodirection * 131;
+int16_t servoY_offset = servodirection * 117.75;
+int16_t servoX_offset = servodirection * 131;
 
 //Position of servos through the startup function
 int servoXstart = servodirection * servoY_offset;
@@ -115,14 +114,12 @@ int liftoffThresh = 13;
 
 // Defining Digital Pins
 struct digitalPins {
-int statusled = 9;
-int errorled = 1;
-int pyro1 = 34;
-int pyro2 = 35;
-int pyro3 = 33;
-int voltagedivider = 0;
-int buzzer = 15;
-int teensyled = 13;
+  int statusled = 9;
+  int errorled = 1;
+  int pyro[3] = {34, 35, 33};
+  int voltagedivider = 0;
+  int buzzer = 15;
+  int teensyled = 13;
 };
 digitalPins digital;
 
@@ -136,23 +133,25 @@ double dt, currentTime, currentTime_2, previousTime;
 //SD CARD Chip Select Pin
 const int chipSelect = BUILTIN_SDCARD;
 
+struct pidVariables {
 //"P" Constants
-float pidX_p = 0;
-float pidY_p = 0;
+float X_p = 0;
+float Y_p = 0;
 
 //"I" Constants
-float pidY_i = 0;
-float pidX_i = 0;
+float Y_i = 0;
+float X_i = 0;
 
 //"D" Constants
-float pidX_d = 0;
-float pidY_d = 0;
-
+float X_d = 0;
+float Y_d = 0;
 
 //PID Gains
-double kp = 0.09;
-double ki = 0.1;
-double kd = 0.0275;
+const double kp = 0.09;
+const double ki = 0.1;
+const double kd = 0.0275;
+};
+pidVariables pid;
 
 //Timer settings for dataLogging in Hz
 unsigned long previousLog = 0;
@@ -165,22 +164,20 @@ const long burnoutInterval = 750;
 const long burnoutTimeInterval = 1000;
 
 // Event Timer Variables
-unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
+double liftoffTime, flightTime, burnoutTime_2, burnoutTime;
 
 // Voltage divider variables
-float voltageDividerIN;
-float voltageDividerOUT;
-float voltageDividermap;
+float voltageDividerIN, voltageDividerOUT, voltageDividermap;
 float voltageDividerMultplier = 5.86;
 
 // The degrees that triggers the abort function
 int abortoffset = 45;
 
 // Launch Site Altitude in Meters(ASL)
-int launchsite_alt = 0;
+const long launchsite_alt = 0;
 
 // Servo frequency
-int servoFrequency = 333;
+const int servoFrequency = 333;
 
 // LED Struct
 struct RGB {
@@ -216,7 +213,7 @@ class RGB_LED {
       analogWrite(green, newGreen);
       analogWrite(blue, newBlue);
     }
-    
+
     void Color(RGB rgb) {
       analogWrite(red, rgb.r);
       analogWrite(green, rgb.g);
@@ -241,34 +238,35 @@ RGB blue = {0, 0, 255};
 RGB purple = {255, 0, 255};
 RGB white = {255, 255, 255};
 
+
 // Kalman variables
 
 struct kalman {
-// Change the value of altVariance to make the data smoother or respond faster
-float altVariance = 1.12184278324081E-07;  
-float varProcess = 1e-8;
-float PC = 0.0;
-float K = 0.0;
-float UP = 1.0;
-float altEst = 0.0;
+  // Change the value of altVariance to make the data smoother or respond faster
+  const float altVariance = 1.12184278324081E-07;
+  float varProcess = 1e-8;
+  float PC = 0.0;
+  float K = 0.0;
+  float UP = 1.0;
+  float altEst = 0.0;
 
-// Change the value of accVariance to make the data smoother or respond faster
-float accVariance = 1.12184278324081E-07; 
-float varProcess2 = 1e-8;
-float PC2 = 0.0;
-float K2 = 0.0;
-float UP2 = 1.0;
-float accEst = 0.0;
+  // Change the value of accVariance to make the data smoother or respond faster
+  const float accVariance = 1.12184278324081E-07;
+  float varProcess2 = 1e-8;
+  float PC2 = 0.0;
+  float K2 = 0.0;
+  float UP2 = 1.0;
+  float accEst = 0.0;
 
-// Change the value of voltVariance to make the data smoother or respond faster
-float voltVariance = 1.12184278324081E-05; 
-float varProcess3 = 1e-8;
-float PC3 = 0.0;
-float K3 = 0.0;
-float UP3 = 1.0;
-float voltageEst = 0.0;
+  // Change the value of voltVariance to make the data smoother or respond faster
+  const float voltVariance = 1.12184278324081E-05;
+  float varProcess3 = 1e-8;
+  float PC3 = 0.0;
+  float K3 = 0.0;
+  float UP3 = 1.0;
+  float voltageEst = 0.0;
 };
-kalman kal; 
+kalman kal;
 
 
 enum FlightState {
@@ -304,15 +302,16 @@ void setup() {
   // Setting the servo frequency
   analogWriteFrequency(2, servoFrequency);
   analogWriteFrequency(3, servoFrequency);
-  
+
   // Setting all of the digital pins to output
   pinMode(digital.buzzer, OUTPUT);
-  pinMode(digital.pyro1, OUTPUT);
-  pinMode(digital.pyro2, OUTPUT);
-  pinMode(digital.pyro3, OUTPUT);
   pinMode(digital.errorled, OUTPUT);
   pinMode(digital.statusled, OUTPUT);
   pinMode(digital.teensyled, OUTPUT);
+
+  for (int i; i < 4; i++) {
+    pinMode(digital.pyro[i], OUTPUT);
+  }
 
   startup();
   sdstart();
@@ -371,23 +370,23 @@ void rotationmatrices () {
   OreZ = vector.OrientationZ;
 
   //X Matrices
-  matrix1 = (cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroY));
-  matrix2 = (((sin(local.DifferenceGyroZ) * -1) * cos(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
-  matrix3 = ((sin(local.DifferenceGyroZ) * sin(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
+  matrix[0] = (cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroY));
+  matrix[1] = (((sin(local.DifferenceGyroZ) * -1) * cos(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
+  matrix[2] = ((sin(local.DifferenceGyroZ) * sin(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
 
   //Y Matrices
-  matrix4 = sin(local.DifferenceGyroZ) * cos(local.DifferenceGyroY);
-  matrix5 = ((cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
-  matrix6 = (((cos(local.DifferenceGyroZ) * -1) * sin(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
+  matrix[3] = sin(local.DifferenceGyroZ) * cos(local.DifferenceGyroY);
+  matrix[4] = ((cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
+  matrix[5] = (((cos(local.DifferenceGyroZ) * -1) * sin(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
 
   //Z Matrices
-  matrix7 = (sin(local.DifferenceGyroY)) * -1;
-  matrix8 = cos(local.DifferenceGyroY) * sin(local.DifferenceGyroX);
-  matrix9 = cos(local.DifferenceGyroY) * cos(local.DifferenceGyroX);
+  matrix[6] = (sin(local.DifferenceGyroY)) * -1;
+  matrix[7] = cos(local.DifferenceGyroY) * sin(local.DifferenceGyroX);
+  matrix[8] = cos(local.DifferenceGyroY) * cos(local.DifferenceGyroX);
 
-  vector.OrientationX = ((OreX * matrix1)) + ((OreY * matrix2)) + ((OreZ * matrix3));
-  vector.OrientationY = ((OreX * matrix4)) + ((OreY * matrix5)) + ((OreZ * matrix6));
-  vector.OrientationZ = ((OreX * matrix7)) + ((OreY * matrix8)) + ((OreZ * matrix9));
+  vector.OrientationX = ((OreX * matrix[0])) + ((OreY * matrix[1])) + ((OreZ * matrix[2]));
+  vector.OrientationY = ((OreX * matrix[3])) + ((OreY * matrix[4])) + ((OreZ * matrix[5]));
+  vector.OrientationZ = ((OreX * matrix[6])) + ((OreY * matrix[7])) + ((OreZ * matrix[8]));
 
   // Convert to euler angles
   global.AxRAD = asin(vector.OrientationX);
@@ -408,25 +407,25 @@ void pidcompute () {
   errorY = global.Ay - desired_angleY;
 
   // Defining "P"
-  pidX_p = kp * errorX;
-  pidY_p = kp * errorY;
+  pid.X_p = pid.kp * errorX;
+  pid.Y_p = pid.kp * errorY;
 
   // Defining "D"
-  pidX_d = kd * ((errorX - previous_errorX) / dt);
-  pidY_d = kd * ((errorY - previous_errorY) / dt);
+  pid.X_d = pid.kd * ((errorX - previous_errorX) / dt);
+  pid.Y_d = pid.kd * ((errorY - previous_errorY) / dt);
 
   // Defining "I"
-  pidX_i = ki * (pidX_i + errorX * dt);
-  pidY_i = ki * (pidY_i + errorY * dt);
+  pid.X_i = pid.ki * (pid.X_i + errorX * dt);
+  pid.Y_i = pid.ki * (pid.Y_i + errorY * dt);
 
 
   // Adding it all up
-  PIDX = pidX_p + pidX_i + pidX_d;
-  PIDY = pidY_p + pidY_i + pidY_d;
+  PIDX = pid.X_p + pid.X_i + pid.X_d;
+  PIDY = pid.Y_p + pid.Y_i + pid.Y_d;
 
   pwmY = servodirection * ((PIDY * servoX_gear_ratio) + servoX_offset);
   pwmX = servodirection * ((PIDX * servoY_gear_ratio) + servoY_offset);
-  
+
   //Servo outputs
   servoX.write(pwmX);
   servoY.write(pwmY);
@@ -521,21 +520,21 @@ void sdSettings () {
   settingstring += ", ";
 
   settingstring += "Kp: ";
-  settingstring += (kp);
+  settingstring += (pid.kp);
   settingstring += ", ";
 
   settingstring += "Ki: ";
-  settingstring += (ki);
+  settingstring += (pid.ki);
   settingstring += ", ";
 
   settingstring += "Kd: ";
-  settingstring += (kd);
+  settingstring += (pid.kd);
 
   File settingFile = SD.open("log002.txt", FILE_WRITE);
 
   if (settingFile) {
-      settingFile.println(settingstring);
-      settingFile.close();
+    settingFile.println(settingstring);
+    settingFile.close();
   }
 }
 
@@ -618,7 +617,7 @@ void burnout () {
   if ((flightState == POWERED_FLIGHT) && kal.accEst <= 2 && (flightTime > burnoutInterval)) {
     //Burnout Detected; changing the system state to state 2
     flightState = MECO;
-    digitalWrite(digital.teensyled, LOW); 
+    digitalWrite(digital.teensyled, LOW);
     LED.Color(green);
     Serial.println("Burnout Detected");
   }
@@ -634,9 +633,9 @@ void burnout () {
   if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - launchsite_alt) <= altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    digitalWrite(digital.pyro1, HIGH);
-    digitalWrite(digital.pyro2, HIGH);
-    digitalWrite(digital.pyro3, HIGH);
+    digitalWrite(digital.pyro[0], HIGH);
+    digitalWrite(digital.pyro[1], HIGH);
+    digitalWrite(digital.pyro[2], HIGH);
     LED.Color(red);
   }
 }
@@ -680,9 +679,9 @@ void abortsystem () {
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    digitalWrite(digital.pyro1, HIGH);
-    digitalWrite(digital.pyro2, HIGH);
-    digitalWrite(digital.pyro3, HIGH);
+    digitalWrite(digital.pyro[0], HIGH);
+    digitalWrite(digital.pyro[1], HIGH);
+    digitalWrite(digital.pyro[2], HIGH);
     tone(digital.buzzer, 1200, 400);
   }
 }
@@ -738,7 +737,7 @@ void voltageWarning () {
   }
 }
 
-void calibrateGyroscopes(float AcX, float AcY, float AcZ) { 
+void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   // Calculating the gyro offsets
   accel.readSensor();
   float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
@@ -753,7 +752,7 @@ void altKalman (float Xp) {
   // Compute the kalman gain
   kal.K = kal.PC / (kal.PC + kal.altVariance);
 
-  // Update the covariance 
+  // Update the covariance
   kal.UP = (1 - kal.K) * kal.PC;
 
   // Re-define variables
@@ -761,17 +760,17 @@ void altKalman (float Xp) {
   float Zp = Xp;
 
   // Final altitude estimation
-  kal.altEst = kal.K * (bmp.altitudefinal - Zp) + Xp;   
+  kal.altEst = kal.K * (bmp.altitudefinal - Zp) + Xp;
 }
 
 void accZKalman (double Xp2) {
   // Predict the next covariance
   kal.PC2 = kal.UP2 + kal.varProcess2;
-  
-  // Compute the kalman gain
-  kal.K2 = kal.PC2 / (kal.PC2 + kal.accVariance);   
 
-  // Update the covariance 
+  // Compute the kalman gain
+  kal.K2 = kal.PC2 / (kal.PC2 + kal.accVariance);
+
+  // Update the covariance
   kal.UP2 = (1 - kal.K2) * kal.PC2;
 
   // Re-define variables
@@ -779,7 +778,7 @@ void accZKalman (double Xp2) {
   float Zp2 = Xp2;
 
   // Final acceleration estimation
-  kal.accEst = kal.K2 * (accel.getAccelX_mss() - Zp2) + Xp2;  
+  kal.accEst = kal.K2 * (accel.getAccelX_mss() - Zp2) + Xp2;
 }
 
 void voltageKalman (float Xp3) {
@@ -787,9 +786,9 @@ void voltageKalman (float Xp3) {
   kal.PC3 = kal.UP3 + kal.varProcess3;
 
   // Compute the kalman gain
-  kal.K3 = kal.PC3 / (kal.PC3 + kal.voltVariance); 
+  kal.K3 = kal.PC3 / (kal.PC3 + kal.voltVariance);
 
-  // Update the covariance   
+  // Update the covariance
   kal.UP3 = (1 - kal.K3) * kal.PC3;
 
   // Re-define variables
@@ -797,6 +796,6 @@ void voltageKalman (float Xp3) {
   float Zp3 = Xp3;
 
   // Final voltage estimation
-  kal.voltageEst = kal.K3 * (voltageDividerOUT - Zp3) + Xp3;  
+  kal.voltageEst = kal.K3 * (voltageDividerOUT - Zp3) + Xp3;
 }
 
