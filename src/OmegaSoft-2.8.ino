@@ -289,7 +289,7 @@ enum FlightState {
   APOGEE = 3,
   CHUTE_DEPLOYMENT = 4,
   ABORT = 5,
-  VOLTAGE_WARNING = 6
+  SYSTEM_WARNING = 6
 };
 FlightState flightState = PAD_IDLE;
 
@@ -705,6 +705,11 @@ void launchpoll () {
     Serial.println("I2C Devices Found!");
     delay(250);
 
+    if (kal.accEst > 1.2 || (kal.bmpTempEst > 32 && kal.bmiTempEst > 32) || kal.voltageEst <= 7.4) {
+      warning();
+      Serial.println("Critical Emergency");
+    }
+
     calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
     Serial.println("Gyroscopes have been calibrated.");
     LED.Color(yellow);
@@ -770,18 +775,14 @@ void altitudeOffset () {
   bmp.altitudefinal = bmp.altitude - bmp.altitude2;
 }
 
-void voltageWarning () {
-  // If the system voltage is less than 7.6
-  if (kal.voltageEst <= 7.4) {
-    flightState = VOLTAGE_WARNING;
+void warning () {
+    flightState = SYSTEM_WARNING;
     digitalWrite(digital.teensyled, HIGH);
     tone(digital.buzzer, 1200);
     delay(400);
     digitalWrite(digital.teensyled, LOW);
     noTone(digital.buzzer);
     delay(400);
-
-  }
 }
 
 void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
@@ -845,7 +846,7 @@ void voltageKalman (float Xp3) {
   // Final voltage estimation
   kal.voltageEst = kal.K3 * (voltageDividerOUT - Zp3) + Xp3;
   
-  voltageWarning();
+  warning();
 }
 
 void tempKalman (float Xp4, float Xp5) {
