@@ -92,23 +92,27 @@ globalOri global;
 int desired_angleX = 0;
 int desired_angleY = 0;
 
-// If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
-int servodirection = -1;
+class servoVari {
+  public:
+    // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
+    int tvcDirection = -1;
 
-//Offsets for tuning
-int16_t servoY_offset = servodirection * 117.75;
-int16_t servoX_offset = servodirection * 131;
+    //Offsets for tuning
+    int16_t YOffset = tvcDirection * 117.75;
+    int16_t XOffset = tvcDirection * 131;
 
-//Position of servos through the startup function
-int servoXstart = servodirection * servoY_offset;
-int servoYstart = servodirection * servoX_offset;
+    //Position of servos through the startup function
+    int Xstart = tvcDirection * YOffset;
+    int Ystart = tvcDirection * XOffset;
 
-//The amount the servo moves by in the startup function
-int servo_start_offset = 8;
+    //The amount the servo moves by in the startup function
+    int startOffset = 8;
 
-//Ratio between servo gear and tvc mount
-float servoX_gear_ratio = 4.5;
-float servoY_gear_ratio = 3.5;
+    //Ratio between servo gear and tvc mount
+    const float XgearRatio = 4.5;
+    const float YgearRatio = 3.5;
+};
+servoVari servo;
 
 int liftoffThresh = 13;
 
@@ -265,6 +269,15 @@ struct kalman {
   float K3 = 0.0;
   float UP3 = 1.0;
   float voltageEst = 0.0;
+
+  // Change the value of tempVariance to make the data smoother or respond faster
+  const float tempVariance = 1.12184278324081E-05;
+  float varProcess4 = 1e-8;
+  float PC4 = 0.0;
+  float K4 = 0.0;
+  float UP4 = 1.0;
+  float bmpTempEst = 0.0;
+  float bmiTempEst = 0.0;
 };
 kalman kal;
 
@@ -292,8 +305,8 @@ void setup() {
   servoY.attach(3);
 
   // Writing servos to their start posistions
-  servoX.write(servoXstart);
-  servoY.write(servoYstart);
+  servoX.write(servo.Xstart);
+  servoY.write(servo.Ystart);
 
   // Starting communication with the onboard BMP280
   bmp280.begin();
@@ -330,16 +343,19 @@ void loop() {
     inflightTimer();
     altitudeOffset();
     launchdetect();
+    sensordata();
     sdwrite();
-    burnout();
-    abortsystem();
-    voltage();
-    altKalman(kal.altEst);
-    accZKalman(kal.accEst);
-
+    
     // Setting the previous time to the current time
     previousTime = currentTime;
   }
+}
+
+void sensordata () {
+  altKalman(kal.altEst);
+  accZKalman(kal.altEst);
+  tempKalman(kal.bmpTempEst, kal.bmiTempEst);
+  voltage();
 }
 void rotationmatrices () {
   //Change Variable so its easier to refrence later on
@@ -423,8 +439,8 @@ void pidcompute () {
   PIDX = pid.X_p + pid.X_i + pid.X_d;
   PIDY = pid.Y_p + pid.Y_i + pid.Y_d;
 
-  pwmY = servodirection * ((PIDY * servoX_gear_ratio) + servoX_offset);
-  pwmX = servodirection * ((PIDX * servoY_gear_ratio) + servoY_offset);
+  pwmY = servo.tvcDirection * ((PIDY * servo.XgearRatio) + servo.XOffset);
+  pwmX = servo.tvcDirection * ((PIDX * servo.YgearRatio) + servo.YOffset);
 
   //Servo outputs
   servoX.write(pwmX);
@@ -443,17 +459,17 @@ void startup () {
   noTone(digital.buzzer);
   delay(500);
 
-  servoX.write(servoXstart + servo_start_offset);
+  servoX.write(servo.Xstart + servo.startOffset);
   delay(400);
-  servoX.write(servoXstart - servo_start_offset);
+  servoX.write(servo.Xstart - servo.startOffset);
   delay(200);
-  servoX.write(servoXstart);
+  servoX.write(servo.Xstart);
   delay(400);
-  servoY.write(servoYstart + servo_start_offset);
+  servoY.write(servo.Ystart + servo.startOffset);
   delay(400);
-  servoY.write(servoYstart - servo_start_offset);
+  servoY.write(servo.Ystart - servo.startOffset);
   delay(200);
-  servoY.write(servoYstart);
+  servoY.write(servo.Ystart);
 
   tone(digital.buzzer, 1100);
   LED.Color(blue);
@@ -479,6 +495,8 @@ void launchdetect () {
     gyro.readSensor();
     LED.Color(blue);
     rotationmatrices();
+    burnout();
+    abortsystem();
   }
 }
 
@@ -507,7 +525,7 @@ void sdSettings () {
   settingstring += (burnoutTimeInterval);
   settingstring += ", ";
 
-  settingstring += "Time after launch when burnout is activated: ";
+  settingstring += "Burnout Interval: ";
   settingstring += (burnoutInterval);
   settingstring += ", ";
 
@@ -529,6 +547,23 @@ void sdSettings () {
 
   settingstring += "Kd: ";
   settingstring += (pid.kd);
+  settingstring += ", ";
+
+  settingstring += "Altitude Variance: ";
+  settingstring += (kal.altVariance);
+  settingstring += ", ";
+
+  settingstring += "Accel Variance: ";
+  settingstring += (kal.accVariance);
+  settingstring += ", ";
+
+  settingstring += "Temp Variance: ";
+  settingstring += (kal.tempVariance);
+  settingstring += ", ";
+
+  settingstring += "Voltage Variance: ";
+  settingstring += (kal.voltVariance);
+  settingstring += ", ";
 
   File settingFile = SD.open("log002.txt", FILE_WRITE);
 
@@ -581,12 +616,20 @@ void sdwrite () {
   datastring += String(kal.voltageEst);
   datastring += ",";
 
-  datastring += "IMU_Temp,";
+  datastring += "Raw_IMU_Temp,";
   datastring += String(accel.getTemperature_C());
   datastring += ",";
 
-  datastring += "Barometer_Temp,";
+  datastring += "Filtered_IMU_Temp,";
+  datastring += String(kal.bmiTempEst);
+  datastring += ",";
+
+  datastring += "Raw_Barometer_Temp,";
   datastring += String(bmp.temperature);
+  datastring += ",";
+
+  datastring += "Filtered_IMU_Temp,";
+  datastring += String(kal.bmpTempEst);
   datastring += ",";
 
   datastring += "Filtered_Altitude,";
@@ -671,18 +714,21 @@ void launchpoll () {
 }
 void abortsystem () {
   if ((flightState == POWERED_FLIGHT) && (global.Ax > abortoffset || global.Ax < -abortoffset) || (global.Ay > abortoffset || global.Ay < -abortoffset)) {
+    // Changing the system state to 5
+    flightState = ABORT;
     Serial.println("Abort Detected.");
     LED.Color(purple);
     digitalWrite(digital.teensyled, LOW);
-
-    // Changing the system state to 5
-    flightState = ABORT;
 
     // Firing the pyrotechnic channel
     digitalWrite(digital.pyro[0], HIGH);
     digitalWrite(digital.pyro[1], HIGH);
     digitalWrite(digital.pyro[2], HIGH);
     tone(digital.buzzer, 1200, 400);
+    
+    //Writing the servos to their "home" posistion
+    servoX.write(servo.Xstart);
+    servoY.write(servo.Ystart);
   }
 }
 
@@ -698,6 +744,7 @@ void voltage () {
 
   // Calls the function to filter the voltage data
   voltageKalman(kal.voltageEst);
+  
 
 }
 
@@ -797,5 +844,28 @@ void voltageKalman (float Xp3) {
 
   // Final voltage estimation
   kal.voltageEst = kal.K3 * (voltageDividerOUT - Zp3) + Xp3;
+  
+  voltageWarning();
+}
+
+void tempKalman (float Xp4, float Xp5) {
+    // Predict the next covariance
+  kal.PC4 = kal.UP4 + kal.varProcess4;
+
+  // Compute the kalman gain
+  kal.K4 = kal.PC4 / (kal.PC4 + kal.tempVariance);
+
+  // Update the covariance
+  kal.UP4 = (1 - kal.K4) * kal.PC4;
+
+  // Re-define variables
+  Xp4 = kal.bmiTempEst;
+  Xp5 = kal.bmiTempEst;
+  float Zp4 = Xp4;
+  float Zp5 = Xp5;
+
+  // Final voltage estimation
+  kal.bmpTempEst = kal.K4 * (voltageDividerOUT - Zp4) + Xp4;
+  kal.bmiTempEst = kal.K4 * (voltageDividerOUT - Zp5) + Xp5;
 }
 
