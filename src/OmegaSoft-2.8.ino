@@ -205,6 +205,9 @@ int abortoffset = 45;
 // Liftoff acceleration threshold
 int liftoffThresh = 13;
 
+bool DiscoMode = false;
+bool StaticFireMode = false;
+
 // LED Struct
 struct RGB {
   int r;
@@ -307,7 +310,8 @@ enum FlightState {
   APOGEE = 3,
   CHUTE_DEPLOYMENT = 4,
   ABORT = 5,
-  VOLTAGE_WARNING = 6
+  VOLTAGE_WARNING = 6,
+  DISCO = 7
 };
 FlightState flightState = PAD_IDLE;
 
@@ -358,24 +362,32 @@ void loop() {
 
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
+    discoMode();
     inflightTimer();
     altitudeOffset();
     launchdetect();
     sensordata();
     sdwrite();
+    if (StaticFireMode == false) {
     burnout();
     abortsystem();
+    }
 
+    if (StaticFireMode ==  true) {
+      liftoffThresh = 0;
+    }
     // Setting the previous time to the current time
     time.previousTime = time.currentTime;
   }
 }
 
 void sensordata () {
-  altKalman(kal.altEst);
-  accZKalman(kal.altEst);
-  tempKalman(kal.bmpTempEst, kal.bmiTempEst);
-  voltage();
+  if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT || flightState == MECO || flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) {
+    altKalman(kal.altEst);
+    accZKalman(kal.altEst);
+    tempKalman(kal.bmpTempEst, kal.bmiTempEst);
+    voltage();
+  }
 }
 void rotationmatrices () {
   //Change Variable so its easier to refrence later on
@@ -506,8 +518,9 @@ void launchdetect () {
   // Read from the accelerometers
   accel.readSensor();
   digitalWrite(digital.statusled, HIGH);
-  if (flightState == PAD_IDLE && accel.getAccelX_mss() > liftoffThresh) {
+  if ((flightState == PAD_IDLE) && accel.getAccelX_mss() > liftoffThresh) {
     flightState = POWERED_FLIGHT;
+    
   }
   if (flightState == POWERED_FLIGHT) {
     // Read from the gyroscopes
@@ -879,4 +892,30 @@ void tempKalman (float Xp4, float Xp5) {
   // Final voltage estimation
   kal.bmpTempEst = kal.K4 * (V.DividerOUT - Zp4) + Xp4;
   kal.bmiTempEst = kal.K4 * (V.DividerOUT - Zp5) + Xp5;
+}
+
+void discoMode () {
+  if (DiscoMode == true) {
+    flightState = DISCO;
+    LED.Color(white);
+    tone(digital.buzzer, 1100);
+    delay(300);
+    LED.Color(purple);
+    noTone(digital.buzzer);
+    delay(300);
+
+    LED.Color(yellow);
+    tone(digital.buzzer, 1100);
+    delay(300);
+    LED.Color(blue);
+    noTone(digital.buzzer);
+    delay(300);
+
+    LED.Color(red);
+    tone(digital.buzzer, 1100);
+    delay(300);
+    LED.Color(green);
+    noTone(digital.buzzer);
+    delay(300);
+  }
 }
