@@ -75,7 +75,6 @@ struct oriVector {
 };
 oriVector vector;
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 struct PID {
   // Upright Angle of the Flight Computer
@@ -110,21 +109,19 @@ struct PID {
 };
 PID pid;
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // BMP280 Variables
 struct barometer {
   float temperature, pressure, altitude, altitudefinal, altitude2;
 
   // Altitude at which the chutes will deploy
-  float altsetpoint = 120;
+  const int16_t altsetpoint = 120;
 
   // Launch Site Altitude in Meters(ASL)
   int launchsite_alt = 0;
 };
 barometer bmp;
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class tvc {
   public:
@@ -146,7 +143,7 @@ class tvc {
   float XgearRatio = 4.5;
   float YgearRatio = 3.5;
 
-  // Servo frequency
+  // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
   uint8_t Frequency[2] = {50, 333};
 };
 tvc servo;
@@ -155,7 +152,6 @@ tvc servo;
 Servo servoX;
 Servo servoY;
 
-///////////////////////////////////////////////////////////////////////////
 
 struct Time {
 // Defining Time Variables
@@ -205,7 +201,7 @@ int abortoffset = 45;
 // Liftoff acceleration threshold
 int liftoffThresh = 13;
 
-bool DiscoMode = false;
+bool DiscoMode = true;
 bool StaticFireMode = false;
 
 // LED Struct
