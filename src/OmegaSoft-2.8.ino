@@ -54,10 +54,6 @@ struct globalOri {
 
   // Global Orientation in degrees
   double Ax, Ay;
-
-  //Upright Angle of the Flight Computer
-  int32_t desiredAngleX = 0;
-  int32_t desiredAngleY = 0;
 };
 globalOri global;
 
@@ -76,11 +72,7 @@ struct oriVector {
 oriVector vector;
 
 
-struct PID {
-  // Upright Angle of the Flight Computer
-  int32_t desiredAngleX = 0;
-  int32_t desiredAngleY = 0;
-
+struct PIDVari {
   // PID Controller Output
   double X, Y;
 
@@ -90,22 +82,41 @@ struct PID {
   // PWM that gets sent to the servos
   double pwmX, pwmY;
 
-  //"P" Constants
-  float X_p = 0;
-  float Y_p = 0;
+  protected:
+    // Upright Angle of the Flight Computer
+    int16_t desiredAngleX;
+    int16_t desiredAngleY;
 
-  //"I" Constants
-  float Y_i = 0;
-  float X_i = 0;
+    //"P" Constants
+    float X_p, Y_p;
 
-  //"D" Constants
-  float X_d = 0;
-  float Y_d = 0;
+    //"I" Constants
+    float Y_i, X_i;
 
-  // PID Gains
-  const double kp = 0.09;
-  const double ki = 0.1;
-  const double kd = 0.0275;
+    //"D" Constants
+    float X_d, Y_d;
+};
+PIDVari pidV;
+
+class PID : public PIDVari {
+  public: 
+    int16_t desiredAngleX = 0;
+    int16_t desiredAngleY = 0;
+
+    //"P" Constants
+    float X_p = 0;
+    float Y_p = 0;
+
+    //"I" Constants
+    float Y_i = 0;
+    float X_i = 0;
+
+    //"D" Constants
+    float X_d = 0;
+    float Y_d = 0;
+
+    // PID Array
+    const double Gain[3] = {0.09, 0.1, 0.0275};
 };
 PID pid;
 
@@ -125,84 +136,91 @@ barometer bmp;
 
 class tvc {
   public:
-  // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
-  int tvcDirection = -1;
+    // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
+    const int tvcDirection = -1;
 
-  //Offsets for tuning
-  int YOffset = tvcDirection * 117.75;
-  int XOffset = tvcDirection * 131;
+    //Offsets for tuning
+    const float YOffset = tvcDirection * 117.75;
+    const float XOffset = tvcDirection * 131;
 
-  //Position of servos through the startup function
-  int Xstart = tvcDirection * YOffset;
-  int Ystart = tvcDirection * XOffset;
+    //Position of servos through the startup function
+    const float Xstart = tvcDirection * YOffset;
+    const float Ystart = tvcDirection * XOffset;
 
-  //The amount the servo moves by in the startup function
-  int startOffset = 10;
+    //The amount the servo moves by in the startup function
+    const byte startOffset = 10;
 
-  //Ratio between servo gear and tvc mount
-  float XgearRatio = 4.5;
-  float YgearRatio = 3.5;
+    //Ratio between servo gear and tvc mount
+    float XgearRatio = 4.5;
+    float YgearRatio = 3.5;
 
-  // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
-  uint8_t Frequency[2] = {50, 333};
-};
-tvc servo;
+    // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
+    const uint16_t Frequency[2] = {50, 333};
+} servo;
+
 
 // Defining the servo pins as integers
 Servo servoX;
 Servo servoY;
 
 
-struct Time {
-// Defining Time Variables
-double dt, currentTime, currentTime_2, previousTime;
+class Time {
+  public:
+    // Defining Time Variables
+    double dtseconds, dtmillis, currentTime, currentTime_2, previousTime;
 
-//Timer settings for dataLogging in Hz
-unsigned long previousLog = 0;
-const long logInterval = 150;
+    //Timer settings for dataLogging in Hz
+    unsigned long previousLog = 0;
+    const long logInterval = 50;
 
-// Time in millis after launch when burnout can be triggered
-const long burnoutInterval = 750;
+    // Time in millis after launch when burnout can be triggered
+    const long burnoutInterval = 750;
 
-// Delay after burnout when the flight computer will deploy the chutes
-const long burnoutTimeInterval = 1000;
+    // Delay after burnout when the flight computer will deploy the chutes
+    const long burnoutTimeInterval = 1000;
 
-// Event Timer Variables
-unsigned long liftoffTime, flightTime, burnoutTime_2, burnoutTime;
+    // Event Timer Variables
+    uint64_t liftoffTime, flightTime;
+    uint32_t burnoutTime[2];
 };
 Time time;
 
+
 // Defining Digital Pins
 struct digitalPins {
-  int statusled = 9;
-  int errorled = 1;
-  int pyro[3] = {34, 35, 33};
-  int voltagedivider = 0;
-  int buzzer = 15;
-  int teensyled = 13;
+  const int statusled = 9;
+  const int errorled = 1;
+  const int pyro[3] = {34, 35, 33};
+  const int voltagedivider = 0;
+  const int buzzer = 15;
+  const int teensyled = 13;
 };
 digitalPins digital;
 
+
 //SD CARD Chip Select Pin
 const int chipSelect = BUILTIN_SDCARD;
+
 
 struct volt {
 // Voltage divider variables
 float DividerIN;
 float DividerOUT;
 float Dividermap;
-float DividerMultplier = 5.86;
+const float DividerMultplier = 5.86;
 };
 volt V;
 
+
 // The degrees that triggers the abort function
-int abortoffset = 45;
+const int abortoffset = 45;
 
 // Liftoff acceleration threshold
-int liftoffThresh = 13;
+uint32_t liftoffThresh = 13;
 
-bool DiscoMode = true;
+bool DiscoMode = false;
 bool StaticFireMode = false;
+
 
 // LED Struct
 struct RGB {
@@ -263,6 +281,7 @@ RGB blue = {0, 0, 255};
 RGB purple = {255, 0, 255};
 RGB white = {255, 255, 255};
 
+
 struct kalman {
   // Change the value of altVariance to make the data smoother or respond faster
   float altVariance = 1.12184278324081E-07;  
@@ -289,7 +308,7 @@ struct kalman {
   float voltageEst = 0.0;
 
  // Change the value of tempVariance to make the data smoother or respond faster
-  const float tempVariance = 1.12184278324081E-05;
+  float tempVariance = 1.12184278324081E-05;
   float varProcess4 = 1e-8;
   float PC4 = 0.0;
   float K4 = 0.0;
@@ -298,6 +317,8 @@ struct kalman {
   float bmiTempEst = 0.0;
 };
 kalman kal; 
+
+
 
 enum FlightState {
   PAD_IDLE = 0,
@@ -310,6 +331,7 @@ enum FlightState {
   DISCO = 7
 };
 FlightState flightState = PAD_IDLE;
+
 
 void setup() {
   // Starting serial communication with your computer
@@ -344,7 +366,7 @@ void setup() {
     pinMode(digital.pyro[i], OUTPUT);
   }
 
-  startup();
+  startupSequence();
   sdstart();
   sdSettings();
   launchpoll();
@@ -354,7 +376,8 @@ void loop() {
   //Defining Time Variables
   time.currentTime = millis();
   time.currentTime_2 = millis();
-  time.dt = (time.currentTime - time.previousTime) / 1000;
+  time.dtmillis = (time.currentTime - time.previousTime);
+  time.dtseconds = (time.currentTime - time.previousTime) / 1000;
 
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
@@ -392,9 +415,9 @@ void rotationmatrices () {
   local.GyroRawZ = (gyro.getGyroX_rads());
 
   //Integrate over time to get Local Orientation
-  local.Ax += local.GyroRawX * time.dt;
-  local.Ay += local.GyroRawY * time.dt;
-  local.Az += local.GyroRawZ * time.dt;
+  local.Ax += local.GyroRawX * time.dtseconds;
+  local.Ay += local.GyroRawY * time.dtseconds;
+  local.Az += local.GyroRawZ * time.dtseconds;
 
   local.PreviousGyroX = local.RADGyroX;
   local.PreviousGyroY = local.RADGyroY;
@@ -451,16 +474,16 @@ void pidcompute () {
   pid.errorY = global.Ay - pid.desiredAngleY;
 
   // Defining "P"
-  pid.X_p = pid.kp * pid.errorX;
-  pid.Y_p = pid.kp * pid.errorY;
+  pid.X_p = pid.Gain[0] * pid.errorX;
+  pid.Y_p = pid.Gain[0] * pid.errorY;
 
   // Defining "I"
-  pid.X_i = pid.ki * (pid.X_i + pid.errorX * time.dt);
-  pid.Y_i = pid.ki * (pid.Y_i + pid.errorY * time.dt);
+  pid.X_i = pid.Gain[1] * (pid.X_i + pid.errorX * time.dtseconds);
+  pid.Y_i = pid.Gain[1] * (pid.Y_i + pid.errorY * time.dtseconds);
 
   // Defining "D"
-  pid.X_d = pid.kd * ((pid.errorX - pid.previous_errorX) / time.dt);
-  pid.Y_d = pid.kd * ((pid.errorY - pid.previous_errorY) / time.dt);  
+  pid.X_d = pid.Gain[2] * ((pid.errorX - pid.previous_errorX) / time.dtseconds);
+  pid.Y_d = pid.Gain[2] * ((pid.errorY - pid.previous_errorY) / time.dtseconds);  
 
   // Adding it all up
   pid.X = pid.X_p + pid.X_i + pid.X_d;
@@ -474,7 +497,7 @@ void pidcompute () {
   servoY.write(pid.pwmY);
 }
 
-void startup () {
+void startupSequence () {
   delay(500);
   LED.Color(white);
   tone(digital.buzzer, 1050);
@@ -485,19 +508,7 @@ void startup () {
   delay(400);
   noTone(digital.buzzer);
   delay(500);
-
-  servoX.write(servo.Xstart + servo.startOffset);
-  delay(400);
-  servoX.write(servo.Xstart - servo.startOffset);
-  delay(200);
-  servoX.write(servo.Xstart);
-  delay(400);
-  servoY.write(servo.Ystart + servo.startOffset);
-  delay(400);
-  servoY.write(servo.Ystart - servo.startOffset);
-  delay(200);
-  servoY.write(servo.Ystart);
-
+  servoSequence();
   tone(digital.buzzer, 1100);
   LED.Color(blue);
   delay(150);
@@ -515,9 +526,8 @@ void launchdetect () {
   accel.readSensor();
   digitalWrite(digital.statusled, HIGH);
   if ((flightState == PAD_IDLE) && accel.getAccelX_mss() > liftoffThresh) {
-    flightState = POWERED_FLIGHT;
-    
-  }
+    flightState = POWERED_FLIGHT;   
+}
   if (flightState == POWERED_FLIGHT) {
     // Read from the gyroscopes
     gyro.readSensor();
@@ -564,15 +574,15 @@ void sdSettings () {
   settingstring += ", ";
 
   settingstring += "Kp: ";
-  settingstring += (pid.kp);
+  settingstring += (pid.Gain[0]);
   settingstring += ", ";
 
   settingstring += "Ki: ";
-  settingstring += (pid.ki);
+  settingstring += (pid.Gain[1]);
   settingstring += ", ";
 
   settingstring += "Kd: ";
-  settingstring += (pid.kd);
+  settingstring += (pid.Gain[2]);
   settingstring += ", ";
 
   settingstring += "Altitude Variance: ";
@@ -691,7 +701,7 @@ void burnout () {
     Serial.println("Burnout Detected");
   }
 
-  if ((flightState == MECO) && time.burnoutTime > time.burnoutTimeInterval) {
+  if ((flightState == MECO) && time.burnoutTime[0] > time.burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
     flightState = APOGEE;
     LED.off();
@@ -778,9 +788,9 @@ void inflightTimer () {
 
   //Timer that waits a certain time after burnout to deploy the chutes
   if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT) {
-    time.burnoutTime_2 = time.currentTime_2;
+    time.burnoutTime[1] = time.currentTime_2;
   }
-  time.burnoutTime = time.currentTime_2 - time.burnoutTime_2;
+  time.burnoutTime[0] = time.currentTime_2 - time.burnoutTime[1];
 }
 
 void altitudeOffset () {
@@ -914,4 +924,18 @@ void discoMode () {
     noTone(digital.buzzer);
     delay(300);
   }
+}
+
+void servoSequence () {
+  servoX.write(servo.Xstart + servo.startOffset);
+  delay(400);
+  servoX.write(servo.Xstart - servo.startOffset);
+  delay(200);
+  servoX.write(servo.Xstart);
+  delay(400);
+  servoY.write(servo.Ystart + servo.startOffset);
+  delay(400);
+  servoY.write(servo.Ystart - servo.startOffset);
+  delay(200);
+  servoY.write(servo.Ystart);
 }
