@@ -142,13 +142,19 @@ class tvc {
     // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
     const int tvcDirection = -1;
 
-    //Offsets for tuning
-    const float YOffset = tvcDirection * 117.75;
-    const float XOffset = tvcDirection * 131;
+    void setOffsetY(int Yoff) {
+    YOff = Yoff;
+    }
+
+    void setOffsetX(int Xoff) {
+    XOff = Xoff;
+    }
+    float servoOffX = 131;
+    float servoOffY = 117.75;
 
     //Position of servos through the startup function
-    const float Xstart = tvcDirection * YOffset;
-    const float Ystart = tvcDirection * XOffset;
+    const float Xstart = tvcDirection * (tvcDirection * servoOffY);
+    const float Ystart = tvcDirection * (tvcDirection * servoOffX);
 
     //The amount the servo moves by in the startup function
     const byte startOffset = 10;
@@ -159,7 +165,25 @@ class tvc {
 
     // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
     const uint16_t Frequency[2] = {50, 333};
-} servo;
+
+    protected:
+      float XOff;
+      float YOff;
+}; 
+tvc servo;
+
+class servoOffsets : public tvc {
+  public:
+    int getOffsetX () {
+      const float XOffset = tvcDirection * XOff; // 131
+      return XOffset;
+    }
+    int getOffsetY () {
+      const float YOffset = tvcDirection * YOff; // 117.75
+      return YOffset;
+  }
+};
+servoOffsets servoOffset;
 
 
 // Defining the servo pins as integers
@@ -193,7 +217,6 @@ Time time;
 struct digitalPins {
   const int statusled = 9;
   const int errorled = 1;
-  const int pyro[3] = {34, 35, 33};
   const int voltagedivider = 0;
   const int buzzer = 15;
   const int teensyled = 13;
@@ -214,6 +237,59 @@ const float DividerMultplier = 5.86;
 };
 volt V;
 
+// LED Struct
+struct Pyro {
+  const int p[3];
+};
+
+class PyroTech {
+  private:
+    // Create the three variables for each pin on an RGB LED
+    int p1;
+    int p2;
+    int p3;
+
+  public:
+
+    // Constructor for the class
+    PyroTech(int new1Pin, int new2Pin, int new3Pin) {
+      // Set the pins in private to the new pins
+      p1 = new1Pin;
+      p2 = new2Pin;
+      p3 = new3Pin;
+
+      // Set the pin mode of each pin to output
+      pinMode(p1, OUTPUT);
+      pinMode(p2, OUTPUT);
+      pinMode(p3, OUTPUT);
+    }
+
+    void Fire(int new1, int new2, int new3) {
+      analogWrite(p1, new1);
+      analogWrite(p2, new2);
+      analogWrite(p3, new3);
+    }
+    
+    void Fire(Pyro pyros) {
+      analogWrite(p1, pyros.p[0]);
+      analogWrite(p2, pyros.p[1]);
+      analogWrite(p3, pyros.p[2]);
+    }
+
+    void off() {
+      // Turn each led pin off
+      analogWrite(p1, 0);
+      analogWrite(p2, 0);
+      analogWrite(p3, 0);
+    }
+};
+
+PyroTech pyro(34, 35, 33);
+
+// All possible RGB LED Colors
+Pyro P1 = {255, 0, 0};
+Pyro P2 = {0, 255, 0};
+Pyro P3 = {0, 0, 255};
 
 // The degrees that triggers the abort function
 const int abortoffset = 45;
@@ -344,21 +420,11 @@ void setup() {
   // Starting communication with the I2C bus
   Wire.begin();
 
-  // Attaching the servos to the desired pins
-  servoX.attach(2);
-  servoY.attach(3);
 
-  // Writing servos to their start posistions
-  servoX.write(servo.Xstart);
-  servoY.write(servo.Ystart);
 
   // Starting communication with the onboard BMP280
   bmp280.begin();
   bmp280.startNormalConversion();
-
-  // Setting the servo frequency
-  analogWriteFrequency(2, servo.Frequency[1]);
-  analogWriteFrequency(3, servo.Frequency[1]);
   
   // Setting all of the digital pins to output
   pinMode(digital.buzzer, OUTPUT);
@@ -366,9 +432,20 @@ void setup() {
   pinMode(digital.statusled, OUTPUT);
   pinMode(digital.teensyled, OUTPUT);
 
-  for (int i; i < 4; i++) {
-    pinMode(digital.pyro[i], OUTPUT);
-  }
+  servoX.attach(2);
+  servoY.attach(3);
+
+  // Setting the servo frequency
+  analogWriteFrequency(2, servo.Frequency[1]);
+  analogWriteFrequency(3, servo.Frequency[1]);
+
+    // Setting the servo offset
+  servoOffset.setOffsetX(131);
+  servoOffset.setOffsetY(117.75);
+
+  // Writing servos to their start posistions
+  servoX.write(servo.Xstart);
+  servoY.write(servo.Ystart);
 
   flightState = CONFIGURATION;
   startupSequence();
@@ -385,6 +462,7 @@ void loop() {
   time.dtmillis = (time.currentTime - time.previousTime);
   time.dtseconds = (time.currentTime - time.previousTime) / 1000;
 
+  
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
     discoMode();
@@ -393,6 +471,7 @@ void loop() {
     launchdetect();
     sensordata();
     sdwrite();
+    
     if (StaticFireMode == false) {
     burnout();
     abortsystem();
@@ -407,15 +486,10 @@ void loop() {
 
 void sensordata () {
   if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT || flightState == MECO || flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) {
-    switch (flightState) {
-      case PAD_IDLE:
         accZKalman(kal.accEst);
-        tempKalman(kal.bmpTempEst, kal.bmiTempEst);
-        voltage();
-
-      case POWERED_FLIGHT:
         altKalman(kal.altEst);
-    }
+        tempKalman(kal.bmpTempEst, kal.bmiTempEst);
+        voltage(); 
   }
 }
 void rotationmatrices () {
@@ -499,8 +573,8 @@ void pidcompute () {
   pid.X = pid.X_p + pid.X_i + pid.X_d;
   pid.Y = pid.Y_p + pid.Y_i + pid.Y_d;
 
-  pid.pwmY = servo.tvcDirection * ((pid.Y * servo.XgearRatio) + servo.XOffset);
-  pid.pwmX = servo.tvcDirection * ((pid.X * servo.YgearRatio) + servo.YOffset);
+  pid.pwmY = servo.tvcDirection * ((pid.Y * servo.XgearRatio) + servoOffset.getOffsetX());
+  pid.pwmX = servo.tvcDirection * ((pid.X * servo.YgearRatio) + servoOffset.getOffsetY());
   
   //Servo outputs
   servoX.write(pid.pwmX);
@@ -508,6 +582,8 @@ void pidcompute () {
 }
 
 void startupSequence () {
+  servoX.attach(2);
+  servoY.attach(3);
   delay(500);
   LED.Color(white);
   tone(digital.buzzer, 1050);
@@ -518,7 +594,17 @@ void startupSequence () {
   delay(400);
   noTone(digital.buzzer);
   delay(500);
-  servoSequence();
+  servoX.write(servo.Xstart + 10);
+  delay(400);
+  servoX.write(servo.Xstart - 10);
+  delay(200);
+  servoX.write(servo.Xstart);
+  delay(400);
+  servoY.write(servo.Ystart + 10);
+  delay(400);
+  servoY.write(servo.Ystart - 10);
+  delay(200);
+  servoY.write(servo.Ystart);
   tone(digital.buzzer, 1100);
   LED.Color(blue);
   delay(150);
@@ -722,9 +808,9 @@ void burnout () {
   if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - bmp.launchsite_alt) <= bmp.altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    digitalWrite(digital.pyro[0], HIGH);
-    digitalWrite(digital.pyro[1], HIGH);
-    digitalWrite(digital.pyro[2], HIGH);
+    pyro.Fire(P1);
+    pyro.Fire(P2);
+    pyro.Fire(P3);
     LED.Color(red);
   }
 }
@@ -765,9 +851,9 @@ void abortsystem () {
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    digitalWrite(digital.pyro[0], HIGH);
-    digitalWrite(digital.pyro[1], HIGH);
-    digitalWrite(digital.pyro[2], HIGH);
+    pyro.Fire(P1);
+    pyro.Fire(P2);
+    pyro.Fire(P3);
 
     Serial.println("Abort Detected.");
     LED.Color(purple);
@@ -938,16 +1024,3 @@ void discoMode () {
   }
 }
 
-void servoSequence () {
-  servoX.write(servo.Xstart + servo.startOffset);
-  delay(400);
-  servoX.write(servo.Xstart - servo.startOffset);
-  delay(200);
-  servoX.write(servo.Xstart);
-  delay(400);
-  servoY.write(servo.Ystart + servo.startOffset);
-  delay(400);
-  servoY.write(servo.Ystart - servo.startOffset);
-  delay(200);
-  servoY.write(servo.Ystart);
-}
