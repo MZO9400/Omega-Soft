@@ -1,15 +1,18 @@
 /* Delta Space Systems
-      Version 3.0
-    November, 12th 2020 */
+      Version 3.02
+    November, 14th 2020 */
 
 /*System State:
-   0 = Go/No Go before launch
-   1 = PID Controlled Ascent
-   2 = Main Engine Cutoff (MECO)
-   3 = Apogee Detected
-   4 = Chute Descent
-   5 = Abort Detected
-   6 = Battery voltage too low
+   0 = Configuration
+   1 = Gyroscope Calibration
+   2 = Go/No Go before launch
+   3 = PID Controlled Ascent
+   4 = Main Engine Cutoff (MECO)
+   5 = Apogee Detected
+   6 = Chute Descent
+   7 = Abort Detected
+   8 = Battery voltage too low
+   9 = Disco Mode
 */
 
 //Libraries
@@ -319,16 +322,17 @@ struct kalman {
 kalman kal; 
 
 
-
 enum FlightState {
-  PAD_IDLE = 0,
-  POWERED_FLIGHT = 1,
-  MECO = 2,
-  APOGEE = 3,
-  CHUTE_DEPLOYMENT = 4,
-  ABORT = 5,
-  VOLTAGE_WARNING = 6,
-  DISCO = 7
+  CONFIGURATION = 0, 
+  CALIBRATION = 1, 
+  PAD_IDLE = 2,
+  POWERED_FLIGHT = 3,
+  MECO = 4,
+  APOGEE = 5,
+  CHUTE_DEPLOYMENT = 6,
+  ABORT = 7,
+  VOLTAGE_WARNING = 8,
+  DISCO = 9
 };
 FlightState flightState = PAD_IDLE;
 
@@ -366,10 +370,12 @@ void setup() {
     pinMode(digital.pyro[i], OUTPUT);
   }
 
+  flightState = CONFIGURATION;
   startupSequence();
   sdstart();
   sdSettings();
   launchpoll();
+  flightState = PAD_IDLE;
 }
 
 void loop() {
@@ -390,9 +396,8 @@ void loop() {
     if (StaticFireMode == false) {
     burnout();
     abortsystem();
-    }
-
-    if (StaticFireMode ==  true) {
+    
+  } if (StaticFireMode ==  true) {
       liftoffThresh = 0;
     }
     // Setting the previous time to the current time
@@ -402,10 +407,15 @@ void loop() {
 
 void sensordata () {
   if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT || flightState == MECO || flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) {
-    altKalman(kal.altEst);
-    accZKalman(kal.altEst);
-    tempKalman(kal.bmpTempEst, kal.bmiTempEst);
-    voltage();
+    switch (flightState) {
+      case PAD_IDLE:
+        accZKalman(kal.accEst);
+        tempKalman(kal.bmpTempEst, kal.bmiTempEst);
+        voltage();
+
+      case POWERED_FLIGHT:
+        altKalman(kal.altEst);
+    }
   }
 }
 void rotationmatrices () {
@@ -721,31 +731,34 @@ void burnout () {
 
 void launchpoll () {
   delay(750);
-  if (flightState == PAD_IDLE) {
-    int status;
+  int status;
+  switch (flightState) {
+    case CONFIGURATION:
     //Checking to see if the Teensy can communicate with the BMI088 accelerometer
     status = accel.begin();
-    if (status < 0) {
-      Serial.println("Accel Initialization Error");
-      digitalWrite(digital.errorled, HIGH);
-      while (1) {}
-    }
-
+      if (status < 0) {
+        Serial.println("Accel Initialization Error");
+        digitalWrite(digital.errorled, HIGH);
+        while (1) {}
+  }
     //Checking to see if the Teensy can communicate with the BMI088 gyroscopes
     status = gyro.begin();
-    if (status < 0) {
-      Serial.println("Gyro Initialization Error");
-      digitalWrite(digital.errorled, HIGH);
-      while (1) {}
-    }
+      if (status < 0) {
+        Serial.println("Gyro Initialization Error");
+        digitalWrite(digital.errorled, HIGH);
+        while (1) {}
+  }
     Serial.println("I2C Devices Found!");
     delay(250);
 
-    calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
-    Serial.println("Gyroscopes have been calibrated.");
-    LED.Color(yellow);
+    flightState = CALIBRATION;
+    case CALIBRATION:
+      calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
+      Serial.println("Gyroscopes have been calibrated.");
+      LED.Color(yellow);  
   }
 }
+
 void abortsystem () {
   if ((flightState == POWERED_FLIGHT) && (global.Ax > abortoffset || global.Ax < -abortoffset) || (global.Ay > abortoffset || global.Ay < -abortoffset)) {
     // Changing the system state to 5
@@ -811,7 +824,6 @@ void voltageWarning () {
     digitalWrite(digital.teensyled, LOW);
     noTone(digital.buzzer);
     delay(400);
-
   }
 }
 
@@ -823,7 +835,7 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   global.Ay = asin(AcX / totalAccel);
 }
 
-void altKalman (float Xp) {
+void altKalman (double Xp) {
   // Predict the next covariance
   kal.PC = kal.UP + kal.varProcess;
 
@@ -859,7 +871,7 @@ void accZKalman (double Xp2) {
   kal.accEst = kal.K2 * (accel.getAccelX_mss() - Zp2) + Xp2;  
 }
 
-void voltageKalman (float Xp3) {
+void voltageKalman (double Xp3) {
   // Predict the next covariance
   kal.PC3 = kal.UP3 + kal.varProcess3;
 
@@ -879,7 +891,7 @@ void voltageKalman (float Xp3) {
   voltageWarning();
 }
 
-void tempKalman (float Xp4, float Xp5) {
+void tempKalman (double Xp4, double Xp5) {
     // Predict the next covariance
   kal.PC4 = kal.UP4 + kal.varProcess4;
 
