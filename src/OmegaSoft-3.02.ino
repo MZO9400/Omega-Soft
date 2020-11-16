@@ -1,6 +1,6 @@
 /* Delta Space Systems
-      Version 3.02
-    November, 14th 2020 */
+      Version 3.06
+    November, 15th 2020 */
 
 /*System State:
    0 = Configuration
@@ -85,11 +85,11 @@ struct PIDVari {
   // PWM that gets sent to the servos
   double pwmX, pwmY;
 
+  // Upright Angle of the Flight Computer
+  int16_t desiredAngleX;
+  int16_t desiredAngleY;
+  
   protected:
-    // Upright Angle of the Flight Computer
-    int16_t desiredAngleX;
-    int16_t desiredAngleY;
-
     //"P" Constants
     float X_p, Y_p;
 
@@ -119,7 +119,7 @@ class PID : public PIDVari {
     float Y_d = 0;
 
     // PID Array
-    const double Gain[3] = {0.09, 0.1, 0.0275};
+    double Gain[3] = {0.09, 0.2, 0.0275};
 };
 PID pid;
 
@@ -149,8 +149,8 @@ class tvc {
     void setOffsetX(int Xoff) {
     XOff = Xoff;
     }
-    float servoOffX = 131;
-    float servoOffY = 117.75;
+    float servoOffX = 124;
+    float servoOffY = 118;
 
     //Position of servos through the startup function
     const float Xstart = tvcDirection * (tvcDirection * servoOffY);
@@ -198,7 +198,7 @@ class Time {
 
     //Timer settings for dataLogging in Hz
     unsigned long previousLog = 0;
-    const long logInterval = 50;
+    const long logInterval = 10;
 
     // Time in millis after launch when burnout can be triggered
     const long burnoutInterval = 750;
@@ -207,7 +207,7 @@ class Time {
     const long burnoutTimeInterval = 1000;
 
     // Event Timer Variables
-    uint64_t liftoffTime, flightTime;
+    uint32_t liftoffTime, flightTime;
     uint32_t burnoutTime[2];
 };
 Time time;
@@ -363,7 +363,7 @@ RGB white = {255, 255, 255};
 
 struct kalman {
   // Change the value of altVariance to make the data smoother or respond faster
-  float altVariance = 1.12184278324081E-07;  
+  float altVariance = 1.12184278324081E-05;  
   float varProcess = 1e-8;
   float PC = 0.0;
   float K = 0.0;
@@ -386,14 +386,24 @@ struct kalman {
   float UP3 = 1.0;
   float voltageEst = 0.0;
 
- // Change the value of tempVariance to make the data smoother or respond faster
-  float tempVariance = 1.12184278324081E-05;
+  // Change the value of tempVariance to make the data smoother or respond faster
+  float tempVariance = 1.12184278324081E-04;
   float varProcess4 = 1e-8;
   float PC4 = 0.0;
   float K4 = 0.0;
   float UP4 = 1.0;
   float bmpTempEst = 0.0;
   float bmiTempEst = 0.0;
+
+  // Change the value of voltVariance to make the data smoother or respond faster
+  float PVariance = 1.12184278324081E-07; 
+  float varProcess5 = 1e-8;
+  float PC5 = 0.0;
+  float K5 = 0.0;
+  float UP5 = 1.0;
+  float X_pEst = 0.0;
+  float Y_pEst = 0.0;
+
 };
 kalman kal; 
 
@@ -420,8 +430,6 @@ void setup() {
   // Starting communication with the I2C bus
   Wire.begin();
 
-
-
   // Starting communication with the onboard BMP280
   bmp280.begin();
   bmp280.startNormalConversion();
@@ -439,9 +447,9 @@ void setup() {
   analogWriteFrequency(2, servo.Frequency[1]);
   analogWriteFrequency(3, servo.Frequency[1]);
 
-    // Setting the servo offset
-  servoOffset.setOffsetX(131);
-  servoOffset.setOffsetY(117.75);
+  // Setting the servo offset
+  servoOffset.setOffsetX(servo.servoOffX);
+  servoOffset.setOffsetY(servo.servoOffY);
 
   // Writing servos to their start posistions
   servoX.write(servo.Xstart);
@@ -461,20 +469,18 @@ void loop() {
   time.currentTime_2 = millis();
   time.dtmillis = (time.currentTime - time.previousTime);
   time.dtseconds = (time.currentTime - time.previousTime) / 1000;
-
-  
+ 
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
-    discoMode();
-    inflightTimer();
-    altitudeOffset();
-    launchdetect();
-    sensordata();
-    sdwrite();
-    
+    //discoMode();
+    //inflightTimer();
+    //altitudeOffset();
+    //launchdetect();
+    //sensordata();
+    //sdwrite();
     if (StaticFireMode == false) {
-    burnout();
-    abortsystem();
+    //burnout();
+    //abortsystem();
     
   } if (StaticFireMode ==  true) {
       liftoffThresh = 0;
@@ -560,7 +566,13 @@ void pidcompute () {
   // Defining "P"
   pid.X_p = pid.Gain[0] * pid.errorX;
   pid.Y_p = pid.Gain[0] * pid.errorY;
+  proportionalKalman(kal.X_pEst, kal.Y_pEst);
 
+  if (time.flightTime <= 1000) {
+    pid.Gain[1] = 0.4;
+  } else {
+    pid.Gain[1] = 0.2;
+  }
   // Defining "I"
   pid.X_i = pid.Gain[1] * (pid.X_i + pid.errorX * time.dtseconds);
   pid.Y_i = pid.Gain[1] * (pid.Y_i + pid.errorY * time.dtseconds);
@@ -570,8 +582,8 @@ void pidcompute () {
   pid.Y_d = pid.Gain[2] * ((pid.errorY - pid.previous_errorY) / time.dtseconds);  
 
   // Adding it all up
-  pid.X = pid.X_p + pid.X_i + pid.X_d;
-  pid.Y = pid.Y_p + pid.Y_i + pid.Y_d;
+  pid.X = kal.X_pEst + pid.X_i + pid.X_d;
+  pid.Y = kal.Y_pEst + pid.Y_i + pid.Y_d;
 
   pid.pwmY = servo.tvcDirection * ((pid.Y * servo.XgearRatio) + servoOffset.getOffsetX());
   pid.pwmX = servo.tvcDirection * ((pid.X * servo.YgearRatio) + servoOffset.getOffsetY());
@@ -613,8 +625,27 @@ void startupSequence () {
   delay(150);
   tone(digital.buzzer, 1300);
   LED.Color(green);
-  delay(200);
+  delay(5000);
   noTone(digital.buzzer);
+
+  servoX.write(servo.Xstart);
+  servoY.write(servo.Ystart);
+
+  while (1) {
+  delay(200);
+  servoX.write(servo.Xstart + 15);
+  delay(300);
+  servoX.write(servo.Xstart - 15);
+  delay(200);
+  servoX.write(servo.Xstart);
+
+  delay(400);
+  servoY.write(servo.Ystart + 15);
+  delay(300);
+  servoY.write(servo.Ystart - 20);
+  delay(200);
+  servoY.write(servo.Ystart);
+  }
 }
 
 void launchdetect () {
@@ -776,7 +807,6 @@ void sdwrite () {
   datastring += String(bmp.pressure);
   datastring += ",";
 
-
   File omegaFile = SD.open("log001.txt", FILE_WRITE);
 
   if (omegaFile) {
@@ -796,7 +826,13 @@ void burnout () {
     LED.Color(green);
     Serial.println("Burnout Detected");
   }
+  switch (flightState) {
+    case MECO:
+      apogee();
+  }
+}
 
+void apogee () {
   if ((flightState == MECO) && time.burnoutTime[0] > time.burnoutTimeInterval) {
     //Apogee Detected; changing the system state to state 3
     flightState = APOGEE;
@@ -804,7 +840,13 @@ void burnout () {
     Serial.println("Apogee Detected");
     tone(digital.buzzer, 1200, 200);
   }
+  switch (flightState) {
+    case APOGEE:
+      chuteDeployment();
+  }
+}
 
+void chuteDeployment () {
   if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - bmp.launchsite_alt) <= bmp.altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
@@ -902,7 +944,7 @@ void altitudeOffset () {
 
 void voltageWarning () {
   // If the system voltage is less than 7.6
-  if (kal.voltageEst <= 7.4) {
+  if (kal.voltageEst <= 7) {
     flightState = VOLTAGE_WARNING;
     digitalWrite(digital.teensyled, HIGH);
     tone(digital.buzzer, 1200);
@@ -973,7 +1015,6 @@ void voltageKalman (double Xp3) {
 
   // Final voltage estimation
   kal.voltageEst = kal.K3 * (V.DividerOUT - Zp3) + Xp3;  
-
   voltageWarning();
 }
 
@@ -992,10 +1033,33 @@ void tempKalman (double Xp4, double Xp5) {
   Xp5 = kal.bmiTempEst;
   float Zp4 = Xp4;
   float Zp5 = Xp5;
-
+  /*
+  TODO: Change V.DividerOUT
+  */
   // Final voltage estimation
   kal.bmpTempEst = kal.K4 * (V.DividerOUT - Zp4) + Xp4;
   kal.bmiTempEst = kal.K4 * (V.DividerOUT - Zp5) + Xp5;
+}
+
+void proportionalKalman (double Xp6, double Xp7) {
+    // Predict the next covariance
+  kal.PC5 = kal.UP5 + kal.varProcess5;
+
+  // Compute the kalman gain
+  kal.K5 = kal.PC5 / (kal.PC5 + kal.PVariance);
+
+  // Update the covariance
+  kal.UP5 = (1 - kal.K5) * kal.PC5;
+
+  // Re-define variables
+  Xp6 = pid.X_p;
+  Xp7 = pid.Y_p;
+  float Zp6 = Xp6;
+  float Zp7 = Xp7;
+
+  // Final voltage estimation
+  kal.X_pEst = kal.K5 * (pid.X_p - Zp6) + Xp6;
+  kal.Y_pEst = kal.K5 * (pid.Y_p - Zp7) + Xp7;
 }
 
 void discoMode () {
