@@ -1,6 +1,6 @@
 /* Delta Space Systems
-      Version 3.06
-    November, 15th 2020 */
+      Version 3.1
+    November, 17th 2020 */
 
 /*System State:
    0 = Configuration
@@ -23,6 +23,7 @@
 #include <math.h>
 #include "BMI088.h"
 #include <BMP280_DEV.h>
+#include <altkalman.h>
 
 // Accelerometer Register
 Bmi088Accel accel(Wire, 0x18);
@@ -31,6 +32,8 @@ Bmi088Accel accel(Wire, 0x18);
 Bmi088Gyro gyro(Wire, 0x68);
 
 BMP280_DEV bmp280;
+
+KalLib kalLib;
 
 // Orientation Variables
 struct localOri {
@@ -134,9 +137,9 @@ struct barometer {
   // Launch Site Altitude in Meters(ASL)
   int launchsite_alt = 0;
 };
-barometer bmp;
+barometer bmp2;
 
-
+  
 class tvc {
   public:
     // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
@@ -300,7 +303,6 @@ uint32_t liftoffThresh = 13;
 bool DiscoMode = false;
 bool StaticFireMode = false;
 
-
 // LED Struct
 struct RGB {
   int r;
@@ -362,14 +364,6 @@ RGB white = {255, 255, 255};
 
 
 struct kalman {
-  // Change the value of altVariance to make the data smoother or respond faster
-  float altVariance = 1.12184278324081E-05;  
-  float varProcess = 1e-8;
-  float PC = 0.0;
-  float K = 0.0;
-  float UP = 1.0;
-  float altEst = 0.0;
-
   // Change the value of accVariance to make the data smoother or respond faster
   float accVariance = 1.12184278324081E-07; 
   float varProcess2 = 1e-8;
@@ -471,7 +465,7 @@ void loop() {
   time.dtseconds = (time.currentTime - time.previousTime) / 1000;
  
   // Get measurements from the BMP280
-  if (bmp280.getMeasurements(bmp.temperature, bmp.pressure, bmp.altitude)) {
+  if (bmp280.getMeasurements(bmp2.temperature, bmp2.pressure, bmp2.altitude)) {
     //discoMode();
     //inflightTimer();
     //altitudeOffset();
@@ -493,7 +487,12 @@ void loop() {
 void sensordata () {
   if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT || flightState == MECO || flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) {
         accZKalman(kal.accEst);
-        altKalman(kal.altEst);
+
+        switch (flightState){
+          case POWERED_FLIGHT:
+            kalLib.setAlt(bmp2.altitudefinal);
+            kalLib.getAltEst();
+        }
         tempKalman(kal.bmpTempEst, kal.bmiTempEst);
         voltage(); 
   }
@@ -697,7 +696,7 @@ void sdSettings () {
   settingstring += ", ";
 
   settingstring += "Deployment Altitude: ";
-  settingstring += (bmp.altsetpoint);
+  settingstring += (bmp2.altsetpoint);
   settingstring += ", ";
 
   settingstring += "Kp: ";
@@ -710,10 +709,6 @@ void sdSettings () {
 
   settingstring += "Kd: ";
   settingstring += (pid.Gain[2]);
-  settingstring += ", ";
-
-  settingstring += "Altitude Variance: ";
-  settingstring += (kal.altVariance);
   settingstring += ", ";
 
   settingstring += "Accel Variance: ";
@@ -788,7 +783,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Raw_Barometer_Temp,";
-  datastring += String(bmp.temperature);
+  datastring += String(bmp2.temperature);
   datastring += ",";
 
   datastring += "Filtered_IMU_Temp,";
@@ -796,15 +791,15 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Filtered_Altitude,";
-  datastring += String(kal.altEst);
+  datastring += String(kalLib.getAltEst());
   datastring += ",";
 
   datastring += "Raw_Altitude,";
-  datastring += String(bmp.altitudefinal);
+  datastring += String(bmp2.altitudefinal);
   datastring += ",";
 
   datastring += "Pressure,";
-  datastring += String(bmp.pressure);
+  datastring += String(bmp2.pressure);
   datastring += ",";
 
   File omegaFile = SD.open("log001.txt", FILE_WRITE);
@@ -847,7 +842,7 @@ void apogee () {
 }
 
 void chuteDeployment () {
-  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - bmp.launchsite_alt) <= bmp.altsetpoint) {
+  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kalLib.getAltEst() - bmp2.launchsite_alt) <= bmp2.altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
     pyro.Fire(P1);
@@ -937,9 +932,9 @@ void inflightTimer () {
 void altitudeOffset () {
   // Gets offsets of altitude at launch so you dont have to manually set your launch site altitude
   if (flightState == PAD_IDLE) {
-    bmp.altitude2 = bmp.altitude;
+    bmp2.altitude2 = bmp2.altitude;
   }
-  bmp.altitudefinal = bmp.altitude - bmp.altitude2;
+  bmp2.altitudefinal = bmp2.altitude - bmp2.altitude2;
 }
 
 void voltageWarning () {
@@ -961,24 +956,6 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
   global.Ax = -asin(AcZ / totalAccel);
   global.Ay = asin(AcX / totalAccel);
-}
-
-void altKalman (double Xp) {
-  // Predict the next covariance
-  kal.PC = kal.UP + kal.varProcess;
-
-  // Compute the kalman gain
-  kal.K = kal.PC / (kal.PC + kal.altVariance);
-
-  // Update the covariance 
-  kal.UP = (1 - kal.K) * kal.PC;
-
-  // Re-define variables
-  Xp = kal.altEst;
-  float Zp = Xp;
-
-  // Final altitude estimation
-  kal.altEst = kal.K * (bmp.altitudefinal - Zp) + Xp;   
 }
 
 void accZKalman (double Xp2) {
@@ -1037,8 +1014,8 @@ void tempKalman (double Xp4, double Xp5) {
   TODO: Change V.DividerOUT
   */
   // Final voltage estimation
-  kal.bmpTempEst = kal.K4 * (V.DividerOUT - Zp4) + Xp4;
-  kal.bmiTempEst = kal.K4 * (V.DividerOUT - Zp5) + Xp5;
+  kal.bmpTempEst = kal.K4 * (bmp2.temperature - Zp4) + Xp4;
+  kal.bmiTempEst = kal.K4 * (accel.getTemperature_C() - Zp5) + Xp5;
 }
 
 void proportionalKalman (double Xp6, double Xp7) {
