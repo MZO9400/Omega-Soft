@@ -23,7 +23,6 @@
 #include <math.h>
 #include "BMI088.h"
 #include <BMP280_DEV.h>
-#include <altkalman.h>
 
 // Accelerometer Register
 Bmi088Accel accel(Wire, 0x18);
@@ -33,49 +32,42 @@ Bmi088Gyro gyro(Wire, 0x68);
 
 BMP280_DEV bmp280;
 
-KalLib kalLib;
-
 // Orientation Variables
 struct localOri {
-  // Local Integrated Gyros in Degrees
-  double Ax, Ay, Az;
+  // Orientation Axis'
+  double Qw[4];
 
-  // Local Integrated Gyros in radians
-  double RADGyroX, RADGyroY, RADGyroZ; 
-
-  // Previous Local Integrated Gyros
-  double PreviousGyroX, PreviousGyroY, PreviousGyroZ;
-
-  // Difference between beginning of the beginning and end of the loop
-  double DifferenceGyroX, DifferenceGyroY, DifferenceGyroZ;
-
-  // Local Angular Velocity(Raw Gyros)
+  // Local Angular Velocity(Radians)
   double GyroRawX, GyroRawY, GyroRawZ;
 };
 localOri local;
 
 struct globalOri {
   // Global Orientation in radians
-  double AxRAD, AyRAD;
+  double AxRAD, AyRAD, AzRAD;
+
+  // Main Integration
+  double Quat_ori[4] = {1, 0, 0, 0};
+
+  //Euler Integration
+  double Quat_dot[4];
 
   // Global Orientation in degrees
-  double Ax, Ay;
+  double Ax, Ay, Az;
+
+  double Ax2, Ay2, Az2;
 };
 globalOri global;
 
-// Matrix Variables
-double matrix[9];
-
-// Final Matrix Multplication
-double Ore[3];
-
-// Setting Orientation Vector
 struct oriVector {
-  double OrientationX = 0;
-  double OrientationY = 0;
-  double OrientationZ = 1;
+  double oriquat[4];
 };
 oriVector vector;
+
+struct gyroCalibration {
+  double Ax, Ay, Az;
+};
+gyroCalibration gyroCal;
 
 
 struct PIDVari {
@@ -365,6 +357,14 @@ RGB white = {255, 255, 255};
 
 struct kalman {
   // Change the value of accVariance to make the data smoother or respond faster
+  float altVariance = 1.12184278324081E-07;  
+  float varProcess = 1e-8;
+  float PC = 0.0;
+  float K = 0.0;
+  float UP = 1.0;
+  float altEst = 0.0;
+
+  // Change the value of accVariance to make the data smoother or respond faster
   float accVariance = 1.12184278324081E-07; 
   float varProcess2 = 1e-8;
   float PC2 = 0.0;
@@ -388,19 +388,8 @@ struct kalman {
   float UP4 = 1.0;
   float bmpTempEst = 0.0;
   float bmiTempEst = 0.0;
-
-  // Change the value of voltVariance to make the data smoother or respond faster
-  float PVariance = 1.12184278324081E-07; 
-  float varProcess5 = 1e-8;
-  float PC5 = 0.0;
-  float K5 = 0.0;
-  float UP5 = 1.0;
-  float X_pEst = 0.0;
-  float Y_pEst = 0.0;
-
 };
 kalman kal; 
-
 
 enum FlightState {
   CONFIGURATION = 0, 
@@ -464,14 +453,21 @@ void loop() {
   time.dtmillis = (time.currentTime - time.previousTime);
   time.dtseconds = (time.currentTime - time.previousTime) / 1000;
  
+  local.GyroRawX = gyro.getGyroX_rads();
+  local.GyroRawY = gyro.getGyroY_rads();
+  local.GyroRawZ = gyro.getGyroZ_rads();
+
+  Serial.println(local.GyroRawX);
+
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp2.temperature, bmp2.pressure, bmp2.altitude)) {
-    //discoMode();
-    //inflightTimer();
-    //altitudeOffset();
-    //launchdetect();
-    //sensordata();
-    //sdwrite();
+    discoMode();
+    inflightTimer();
+    altitudeOffset();
+    gyroOffset();
+    launchdetect();
+    sensordata();
+    sdwrite();
     if (StaticFireMode == false) {
     //burnout();
     //abortsystem();
@@ -485,75 +481,53 @@ void loop() {
 }
 
 void sensordata () {
-  if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT || flightState == MECO || flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) {
-        accZKalman(kal.accEst);
-
-        switch (flightState){
-          case POWERED_FLIGHT:
-            kalLib.setAlt(bmp2.altitudefinal);
-            kalLib.getAltEst();
-        }
-        tempKalman(kal.bmpTempEst, kal.bmiTempEst);
-        voltage(); 
+  switch (flightState) {
+    case PAD_IDLE:
+      voltage(); 
   }
+  accZKalman(kal.accEst);
+  altKalman(kal.altEst);  
+  tempKalman(kal.bmpTempEst, kal.bmiTempEst);       
 }
-void rotationmatrices () {
-  //Change Variable so its easier to refrence later on
-  local.GyroRawX = (gyro.getGyroY_rads());
-  local.GyroRawY = (gyro.getGyroZ_rads());
-  local.GyroRawZ = (gyro.getGyroX_rads());
+void quaternion () {
+  // Setting the orientation axis'
+  local.Qw[0] = 0; 
+  local.Qw[1] = gyroCal.Ay; 
+  local.Qw[2] = gyroCal.Az; 
+  local.Qw[3] = gyroCal.Ax;
 
-  //Integrate over time to get Local Orientation
-  local.Ax += local.GyroRawX * time.dtseconds;
-  local.Ay += local.GyroRawY * time.dtseconds;
-  local.Az += local.GyroRawZ * time.dtseconds;
+  // Euler Integration
+  global.Quat_dot[0] = (-0.5 * global.Quat_ori[1] * local.Qw[1] - 0.5 * global.Quat_ori[2] * local.Qw[2] - 0.5 * global.Quat_ori[3] * local.Qw[3]);
+  global.Quat_dot[1] = (0.5 * global.Quat_ori[0] * local.Qw[1] + 0.5 * global.Quat_ori[2] * local.Qw[3] - 0.5 * global.Quat_ori[3] * local.Qw[2]);
+  global.Quat_dot[2] = (0.5 * global.Quat_ori[0] * local.Qw[2] - 0.5 * global.Quat_ori[1] * local.Qw[3] + 0.5 * global.Quat_ori[3] * local.Qw[1]);
+  global.Quat_dot[3] = (0.5 * global.Quat_ori[0] * local.Qw[3] + 0.5 * global.Quat_ori[1] * local.Qw[2] - 0.5 * global.Quat_ori[2] * local.Qw[1]);
 
-  local.PreviousGyroX = local.RADGyroX;
-  local.PreviousGyroY = local.RADGyroY;
-  local.PreviousGyroZ = local.RADGyroZ;
+  // Integration
+  global.Quat_ori[0] = global.Quat_ori[0] + global.Quat_dot[0] * time.dtseconds;
+  global.Quat_ori[1] = global.Quat_ori[1] + global.Quat_dot[1] * time.dtseconds;
+  global.Quat_ori[2] = global.Quat_ori[2] + global.Quat_dot[2] * time.dtseconds;
+  global.Quat_ori[3] = global.Quat_ori[3] + global.Quat_dot[3] * time.dtseconds;
+  
+  double quatNorm = sqrt(global.Quat_ori[0] * global.Quat_ori[0] + global.Quat_ori[1] * global.Quat_ori[1] + global.Quat_ori[2] * global.Quat_ori[2] + global.Quat_ori[3] * global.Quat_ori[3]);
+  
+  // Normalizing the orientation quaternion
+  global.Quat_ori[0] = global.Quat_ori[0] / quatNorm;
+  global.Quat_ori[1] = global.Quat_ori[1] / quatNorm;
+  global.Quat_ori[2] = global.Quat_ori[2] / quatNorm;
+  global.Quat_ori[3] = global.Quat_ori[3] / quatNorm;
 
-  local.RADGyroX = local.Ax;
-  local.RADGyroY = local.Ay;
-  local.RADGyroZ = local.Az;
+  // Converting from quaternion to euler angles through a rotation matrix
+  global.AyRAD = atan((2 * (global.Quat_ori[0] * global.Quat_ori[1] + global.Quat_ori[2] * global.Quat_ori[3])) / (1 - 2 * (sq(global.Quat_ori[1]) + sq(global.Quat_ori[2]))));
+  global.AxRAD = atan(2 * (global.Quat_ori[0] * global.Quat_ori[2] - global.Quat_ori[3] * global.Quat_ori[1]));
+  global.AzRAD = atan((2 * (global.Quat_ori[0] * global.Quat_ori[3] + global.Quat_ori[1] * global.Quat_ori[2])) / ( 1 - 2 * (sq(global.Quat_ori[2]) + sq(global.Quat_ori[3]))));
 
-  // Finding the difference between the beginning of beginning and the end of rotationmatrices
-  local.DifferenceGyroX = (local.RADGyroX - local.PreviousGyroX);
-  local.DifferenceGyroY = (local.RADGyroY - local.PreviousGyroY);
-  local.DifferenceGyroZ = (local.RADGyroZ - local.PreviousGyroZ);
-
-  Ore[0] = vector.OrientationX;
-  Ore[1] = vector.OrientationY;
-  Ore[2] = vector.OrientationZ;
-
-  //X Matrices
-  matrix[0] = (cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroY));
-  matrix[1] = (((sin(local.DifferenceGyroZ) * -1) * cos(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
-  matrix[2] = ((sin(local.DifferenceGyroZ) * sin(local.DifferenceGyroX) + (cos(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
-
-  //Y Matrices
-  matrix[3] = sin(local.DifferenceGyroZ) * cos(local.DifferenceGyroY);
-  matrix[4] = ((cos(local.DifferenceGyroZ) * cos(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * sin(local.DifferenceGyroX)));
-  matrix[5] = (((cos(local.DifferenceGyroZ) * -1) * sin(local.DifferenceGyroX) + (sin(local.DifferenceGyroZ)) * sin(local.DifferenceGyroY) * cos(local.DifferenceGyroX)));
-
-  //Z Matrices
-  matrix[6] = (sin(local.DifferenceGyroY)) * -1;
-  matrix[7] = cos(local.DifferenceGyroY) * sin(local.DifferenceGyroX);
-  matrix[8] = cos(local.DifferenceGyroY) * cos(local.DifferenceGyroX);
-
-  vector.OrientationX = ((Ore[0] * matrix[0])) + ((Ore[1] * matrix[1])) + ((Ore[2] * matrix[2]));
-  vector.OrientationY = ((Ore[0] * matrix[3])) + ((Ore[1] * matrix[4])) + ((Ore[2] * matrix[5]));
-  vector.OrientationZ = ((Ore[0] * matrix[6])) + ((Ore[1] * matrix[7])) + ((Ore[2] * matrix[8]));
-
-  // Convert to euler angles
-  global.AxRAD = asin(vector.OrientationX);
-  global.AyRAD = asin(vector.OrientationY);
-
-  //Convert from radians to degrees
-  global.Ax = global.AxRAD * (-180 / PI);
+  global.Ax = global.AxRAD * (180 / PI);
   global.Ay = global.AyRAD * (180 / PI);
+  global.Az = global.AzRAD * (180 / PI);
 
   pidcompute();
 }
+
 
 void pidcompute () {
   pid.previous_errorX = pid.errorX;
@@ -565,13 +539,13 @@ void pidcompute () {
   // Defining "P"
   pid.X_p = pid.Gain[0] * pid.errorX;
   pid.Y_p = pid.Gain[0] * pid.errorY;
-  proportionalKalman(kal.X_pEst, kal.Y_pEst);
 
   if (time.flightTime <= 1000) {
-    pid.Gain[1] = 0.4;
+    pid.Gain[1] = 0.5;
   } else {
     pid.Gain[1] = 0.2;
   }
+
   // Defining "I"
   pid.X_i = pid.Gain[1] * (pid.X_i + pid.errorX * time.dtseconds);
   pid.Y_i = pid.Gain[1] * (pid.Y_i + pid.errorY * time.dtseconds);
@@ -581,8 +555,8 @@ void pidcompute () {
   pid.Y_d = pid.Gain[2] * ((pid.errorY - pid.previous_errorY) / time.dtseconds);  
 
   // Adding it all up
-  pid.X = kal.X_pEst + pid.X_i + pid.X_d;
-  pid.Y = kal.Y_pEst + pid.Y_i + pid.Y_d;
+  pid.X = pid.X_p + pid.X_i + pid.X_d;
+  pid.Y = pid.Y_p + pid.Y_i + pid.Y_d;
 
   pid.pwmY = servo.tvcDirection * ((pid.Y * servo.XgearRatio) + servoOffset.getOffsetX());
   pid.pwmX = servo.tvcDirection * ((pid.X * servo.YgearRatio) + servoOffset.getOffsetY());
@@ -624,27 +598,8 @@ void startupSequence () {
   delay(150);
   tone(digital.buzzer, 1300);
   LED.Color(green);
-  delay(5000);
+  delay(200);
   noTone(digital.buzzer);
-
-  servoX.write(servo.Xstart);
-  servoY.write(servo.Ystart);
-
-  while (1) {
-  delay(200);
-  servoX.write(servo.Xstart + 15);
-  delay(300);
-  servoX.write(servo.Xstart - 15);
-  delay(200);
-  servoX.write(servo.Xstart);
-
-  delay(400);
-  servoY.write(servo.Ystart + 15);
-  delay(300);
-  servoY.write(servo.Ystart - 20);
-  delay(200);
-  servoY.write(servo.Ystart);
-  }
 }
 
 void launchdetect () {
@@ -658,7 +613,7 @@ void launchdetect () {
     // Read from the gyroscopes
     gyro.readSensor();
     LED.Color(blue);
-    rotationmatrices();
+    quaternion();
   }
 }
 
@@ -743,7 +698,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Roll,";
-  datastring += String(local.Az);
+  datastring += String(global.Az);
   datastring += ",";
 
   datastring += "System_State,";
@@ -791,7 +746,7 @@ void sdwrite () {
   datastring += ",";
 
   datastring += "Filtered_Altitude,";
-  datastring += String(kalLib.getAltEst());
+  datastring += String(kal.altEst);
   datastring += ",";
 
   datastring += "Raw_Altitude,";
@@ -842,7 +797,7 @@ void apogee () {
 }
 
 void chuteDeployment () {
-  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kalLib.getAltEst() - bmp2.launchsite_alt) <= bmp2.altsetpoint) {
+  if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - bmp2.launchsite_alt) <= bmp2.altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
     pyro.Fire(P1);
@@ -937,6 +892,17 @@ void altitudeOffset () {
   bmp2.altitudefinal = bmp2.altitude - bmp2.altitude2;
 }
 
+void gyroOffset () {
+  if (flightState == PAD_IDLE) {
+    local.GyroRawX = global.Ax2;
+    local.GyroRawY = global.Ay2;
+    local.GyroRawZ = global.Az2;
+  }
+  gyroCal.Ax = local.GyroRawX - global.Ax2;
+  gyroCal.Ay = local.GyroRawY - global.Ay2;
+  gyroCal.Az = local.GyroRawZ - global.Az2;
+}
+
 void voltageWarning () {
   // If the system voltage is less than 7.6
   if (kal.voltageEst <= 7) {
@@ -956,6 +922,24 @@ void calibrateGyroscopes(float AcX, float AcY, float AcZ) {
   float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
   global.Ax = -asin(AcZ / totalAccel);
   global.Ay = asin(AcX / totalAccel);
+}
+
+void altKalman (double Xp) {
+  // Predict the next covariance
+  kal.PC = kal.UP + kal.varProcess;
+
+  // Compute the kalman gain
+  kal.K = kal.PC / (kal.PC + kal.altVariance);
+
+  // Update the covariance 
+  kal.UP = (1 - kal.K) * kal.PC;
+
+  // Re-define variables
+  Xp = kal.altEst;
+  float Zp = Xp;
+
+  // Final altitude estimation
+  kal.altEst = kal.K * (bmp2.altitudefinal - Zp) + Xp;   
 }
 
 void accZKalman (double Xp2) {
@@ -992,7 +976,7 @@ void voltageKalman (double Xp3) {
 
   // Final voltage estimation
   kal.voltageEst = kal.K3 * (V.DividerOUT - Zp3) + Xp3;  
-  voltageWarning();
+  //voltageWarning();
 }
 
 void tempKalman (double Xp4, double Xp5) {
@@ -1010,34 +994,12 @@ void tempKalman (double Xp4, double Xp5) {
   Xp5 = kal.bmiTempEst;
   float Zp4 = Xp4;
   float Zp5 = Xp5;
-  /*
-  TODO: Change V.DividerOUT
-  */
   // Final voltage estimation
   kal.bmpTempEst = kal.K4 * (bmp2.temperature - Zp4) + Xp4;
   kal.bmiTempEst = kal.K4 * (accel.getTemperature_C() - Zp5) + Xp5;
 }
 
-void proportionalKalman (double Xp6, double Xp7) {
-    // Predict the next covariance
-  kal.PC5 = kal.UP5 + kal.varProcess5;
 
-  // Compute the kalman gain
-  kal.K5 = kal.PC5 / (kal.PC5 + kal.PVariance);
-
-  // Update the covariance
-  kal.UP5 = (1 - kal.K5) * kal.PC5;
-
-  // Re-define variables
-  Xp6 = pid.X_p;
-  Xp7 = pid.Y_p;
-  float Zp6 = Xp6;
-  float Zp7 = Xp7;
-
-  // Final voltage estimation
-  kal.X_pEst = kal.K5 * (pid.X_p - Zp6) + Xp6;
-  kal.Y_pEst = kal.K5 * (pid.Y_p - Zp7) + Xp7;
-}
 
 void discoMode () {
   if (DiscoMode == true) {
