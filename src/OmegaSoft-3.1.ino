@@ -32,7 +32,10 @@ Bmi088Gyro gyro(Wire, 0x68);
 
 BMP280_DEV bmp280;
 
-// Orientation Variables
+/* -------------------------------------------------------------------------- */
+/*                            Orientation Variables                           */
+/* -------------------------------------------------------------------------- */
+
 struct localOri {
   // Orientation Axis'
   double Qw[4];
@@ -69,6 +72,9 @@ struct gyroCalibration {
 };
 gyroCalibration gyroCal;
 
+/* -------------------------------------------------------------------------- */
+/*                                PID Variables                               */
+/* -------------------------------------------------------------------------- */
 
 struct PIDVari {
   // PID Controller Output
@@ -114,12 +120,14 @@ class PID : public PIDVari {
     float Y_d = 0;
 
     // PID Array
-    double Gain[3] = {0.09, 0.2, 0.0275};
+    double Gain[3] = {0.08, 0.1, 0.025};
 };
 PID pid;
 
+/* -------------------------------------------------------------------------- */
+/*                              BMP280 Variables                              */
+/* -------------------------------------------------------------------------- */
 
-// BMP280 Variables
 struct barometer {
   float temperature, pressure, altitude, altitudefinal, altitude2;
 
@@ -131,11 +139,14 @@ struct barometer {
 };
 barometer bmp2;
 
-  
+/* -------------------------------------------------------------------------- */
+/*                            Servo & TVC Variables                           */
+/* -------------------------------------------------------------------------- */
+
 class tvc {
   public:
     // If the TVC mount is moving the wrong way and causing a positive feedback loop then change this to 1
-    const int tvcDirection = -1;
+    const int tvcDirection = 1;
 
     void setOffsetY(int Yoff) {
     YOff = Yoff;
@@ -144,8 +155,8 @@ class tvc {
     void setOffsetX(int Xoff) {
     XOff = Xoff;
     }
-    float servoOffX = 124;
-    float servoOffY = 118;
+    float servoOffX = 129;
+    float servoOffY = 113.25;
 
     //Position of servos through the startup function
     const float Xstart = tvcDirection * (tvcDirection * servoOffY);
@@ -155,8 +166,8 @@ class tvc {
     const byte startOffset = 10;
 
     //Ratio between servo gear and tvc mount
-    float XgearRatio = 4.5;
-    float YgearRatio = 3.5;
+    float XgearRatio = 3.5; // 4.5
+    float YgearRatio = 2.1; // 3.5
 
     // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
     const uint16_t Frequency[2] = {50, 333};
@@ -180,11 +191,13 @@ class servoOffsets : public tvc {
 };
 servoOffsets servoOffset;
 
-
 // Defining the servo pins as integers
 Servo servoX;
 Servo servoY;
 
+/* -------------------------------------------------------------------------- */
+/*                               Time Variables                               */
+/* -------------------------------------------------------------------------- */
 
 class Time {
   public:
@@ -207,7 +220,6 @@ class Time {
 };
 Time time;
 
-
 // Defining Digital Pins
 struct digitalPins {
   const int statusled = 9;
@@ -218,10 +230,8 @@ struct digitalPins {
 };
 digitalPins digital;
 
-
 //SD CARD Chip Select Pin
 const int chipSelect = BUILTIN_SDCARD;
-
 
 struct volt {
 // Voltage divider variables
@@ -245,7 +255,6 @@ class PyroTech {
     int p3;
 
   public:
-
     // Constructor for the class
     PyroTech(int new1Pin, int new2Pin, int new3Pin) {
       // Set the pins in private to the new pins
@@ -310,7 +319,6 @@ class RGB_LED {
     int blue;
 
   public:
-
     // Constructor for the class
     RGB_LED(int newRedPin, int newGreenPin, int newBluePin) {
       // Set the pins in private to the new pins
@@ -354,6 +362,9 @@ RGB blue = {0, 0, 255};
 RGB purple = {255, 0, 255};
 RGB white = {255, 255, 255};
 
+/* -------------------------------------------------------------------------- */
+/*                           Kalman Filter Variables                          */
+/* -------------------------------------------------------------------------- */
 
 struct kalman {
   // Change the value of accVariance to make the data smoother or respond faster
@@ -388,8 +399,21 @@ struct kalman {
   float UP4 = 1.0;
   float bmpTempEst = 0.0;
   float bmiTempEst = 0.0;
+
+  // Change the value of tempVariance to make the data smoother or respond faster
+  float oriVariance = 1.12184278324081E-06;
+  float varProcess5 = 1e-8;
+  float PC5 = 0.0;
+  float K5 = 0.0;
+  float UP5 = 1.0;
+  float AxEst = 0.0;
+  float AyEst = 0.0;
 };
 kalman kal; 
+
+/* -------------------------------------------------------------------------- */
+/*                                Flight States                               */
+/* -------------------------------------------------------------------------- */
 
 enum FlightState {
   CONFIGURATION = 0, 
@@ -452,12 +476,10 @@ void loop() {
   time.currentTime_2 = millis();
   time.dtmillis = (time.currentTime - time.previousTime);
   time.dtseconds = (time.currentTime - time.previousTime) / 1000;
- 
+
   local.GyroRawX = gyro.getGyroX_rads();
   local.GyroRawY = gyro.getGyroY_rads();
   local.GyroRawZ = gyro.getGyroZ_rads();
-
-  Serial.println(local.GyroRawX);
 
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp2.temperature, bmp2.pressure, bmp2.altitude)) {
@@ -469,8 +491,8 @@ void loop() {
     sensordata();
     sdwrite();
     if (StaticFireMode == false) {
-    //burnout();
-    //abortsystem();
+      burnout();
+      abortsystem();
     
   } if (StaticFireMode ==  true) {
       liftoffThresh = 0;
@@ -489,12 +511,13 @@ void sensordata () {
   altKalman(kal.altEst);  
   tempKalman(kal.bmpTempEst, kal.bmiTempEst);       
 }
+
 void quaternion () {
   // Setting the orientation axis'
   local.Qw[0] = 0; 
-  local.Qw[1] = gyroCal.Ay; 
-  local.Qw[2] = gyroCal.Az; 
-  local.Qw[3] = gyroCal.Ax;
+  local.Qw[1] = gyroCal.Ay; //Ay
+  local.Qw[2] = gyroCal.Az; //Az
+  local.Qw[3] = gyroCal.Ax; //Ax
 
   // Euler Integration
   global.Quat_dot[0] = (-0.5 * global.Quat_ori[1] * local.Qw[1] - 0.5 * global.Quat_ori[2] * local.Qw[2] - 0.5 * global.Quat_ori[3] * local.Qw[3]);
@@ -502,7 +525,7 @@ void quaternion () {
   global.Quat_dot[2] = (0.5 * global.Quat_ori[0] * local.Qw[2] - 0.5 * global.Quat_ori[1] * local.Qw[3] + 0.5 * global.Quat_ori[3] * local.Qw[1]);
   global.Quat_dot[3] = (0.5 * global.Quat_ori[0] * local.Qw[3] + 0.5 * global.Quat_ori[1] * local.Qw[2] - 0.5 * global.Quat_ori[2] * local.Qw[1]);
 
-  // Integration
+  // Main Integration
   global.Quat_ori[0] = global.Quat_ori[0] + global.Quat_dot[0] * time.dtseconds;
   global.Quat_ori[1] = global.Quat_ori[1] + global.Quat_dot[1] * time.dtseconds;
   global.Quat_ori[2] = global.Quat_ori[2] + global.Quat_dot[2] * time.dtseconds;
@@ -517,33 +540,32 @@ void quaternion () {
   global.Quat_ori[3] = global.Quat_ori[3] / quatNorm;
 
   // Converting from quaternion to euler angles through a rotation matrix
-  global.AyRAD = atan((2 * (global.Quat_ori[0] * global.Quat_ori[1] + global.Quat_ori[2] * global.Quat_ori[3])) / (1 - 2 * (sq(global.Quat_ori[1]) + sq(global.Quat_ori[2]))));
-  global.AxRAD = atan(2 * (global.Quat_ori[0] * global.Quat_ori[2] - global.Quat_ori[3] * global.Quat_ori[1]));
+  global.AxRAD = atan((2 * (global.Quat_ori[0] * global.Quat_ori[1] + global.Quat_ori[2] * global.Quat_ori[3])) / (1 - 2 * (sq(global.Quat_ori[1]) + sq(global.Quat_ori[2]))));
+  global.AyRAD = atan(2 * (global.Quat_ori[0] * global.Quat_ori[2] - global.Quat_ori[3] * global.Quat_ori[1]));
   global.AzRAD = atan((2 * (global.Quat_ori[0] * global.Quat_ori[3] + global.Quat_ori[1] * global.Quat_ori[2])) / ( 1 - 2 * (sq(global.Quat_ori[2]) + sq(global.Quat_ori[3]))));
 
   global.Ax = global.AxRAD * (180 / PI);
-  global.Ay = global.AyRAD * (180 / PI);
-  global.Az = global.AzRAD * (180 / PI);
+  global.Ay = ((global.AyRAD * (180 / PI)) * 2);
+  global.Az = global.AzRAD * (180 / PI); 
 
   pidcompute();
 }
-
 
 void pidcompute () {
   pid.previous_errorX = pid.errorX;
   pid.previous_errorY = pid.errorY;
 
-  pid.errorX = global.Ax - pid.desiredAngleX;
-  pid.errorY = global.Ay - pid.desiredAngleY;
+  pid.errorX = global.Ay - pid.desiredAngleX;
+  pid.errorY = global.Ax - pid.desiredAngleY;
 
   // Defining "P"
   pid.X_p = pid.Gain[0] * pid.errorX;
   pid.Y_p = pid.Gain[0] * pid.errorY;
 
   if (time.flightTime <= 1000) {
-    pid.Gain[1] = 0.5;
+    pid.Gain[1] = 0.4;
   } else {
-    pid.Gain[1] = 0.2;
+    pid.Gain[1] = 0.1;
   }
 
   // Defining "I"
@@ -831,7 +853,6 @@ void launchpoll () {
 
     flightState = CALIBRATION;
     case CALIBRATION:
-      calibrateGyroscopes(accel.getAccelY_mss(), accel.getAccelZ_mss(), accel.getAccelX_mss());
       Serial.println("Gyroscopes have been calibrated.");
       LED.Color(yellow);  
   }
@@ -850,7 +871,6 @@ void abortsystem () {
     Serial.println("Abort Detected.");
     LED.Color(purple);
     digitalWrite(digital.teensyled, LOW);
-
     tone(digital.buzzer, 1200, 400);
   }
 }
@@ -916,13 +936,6 @@ void voltageWarning () {
   }
 }
 
-void calibrateGyroscopes(float AcX, float AcY, float AcZ) { 
-  // Calculating the gyro offsets
-  accel.readSensor();
-  float totalAccel = sqrt(sq(AcZ) + sq(AcX) + sq(AcY));
-  global.Ax = -asin(AcZ / totalAccel);
-  global.Ay = asin(AcX / totalAccel);
-}
 
 void altKalman (double Xp) {
   // Predict the next covariance
@@ -999,7 +1012,26 @@ void tempKalman (double Xp4, double Xp5) {
   kal.bmiTempEst = kal.K4 * (accel.getTemperature_C() - Zp5) + Xp5;
 }
 
+void oriKalman (double Xp6, double Xp7) {
+    // Predict the next covariance
+  kal.PC5 = kal.UP5 + kal.varProcess5;
 
+  // Compute the kalman gain
+  kal.K5 = kal.PC5 / (kal.PC5 + kal.oriVariance);
+
+  // Update the covariance
+  kal.UP5 = (1 - kal.K5) * kal.PC5;
+
+  // Re-define variables
+  Xp6 = kal.AxEst;
+  Xp7 = kal.AyEst;
+  float Zp6 = Xp6;
+  float Zp7 = Xp7;
+
+  // Final voltage estimation
+  kal.AxEst = kal.K5 * (gyroCal.Ax - Zp6) + Xp6;
+  kal.AyEst = kal.K5 * (gyroCal.Ay - Zp7) + Xp7;
+}
 
 void discoMode () {
   if (DiscoMode == true) {
