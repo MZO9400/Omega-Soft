@@ -120,7 +120,7 @@ class PID : public PIDVari {
     float Y_d = 0;
 
     // PID Array
-    double Gain[3] = {0.08, 0.1, 0.025};
+    double Gain[3] = {0.08, 0.15, 0.025};
 };
 PID pid;
 
@@ -132,7 +132,7 @@ struct barometer {
   float temperature, pressure, altitude, altitudefinal, altitude2;
 
   // Altitude at which the chutes will deploy
-  const int16_t altsetpoint = 120;
+  const int16_t altsetpoint = 100;
 
   // Launch Site Altitude in Meters(ASL)
   int launchsite_alt = 0;
@@ -296,13 +296,16 @@ Pyro P2 = {0, 255, 0};
 Pyro P3 = {0, 0, 255};
 
 // The degrees that triggers the abort function
-const int abortoffset = 45;
+const int abortoffset = 60;
 
 // Liftoff acceleration threshold
 uint32_t liftoffThresh = 13;
 
-bool DiscoMode = false;
-bool StaticFireMode = false;
+struct Event {
+  bool DiscoMode = false;
+  bool StaticFireMode = false;
+};
+Event event;
 
 // LED Struct
 struct RGB {
@@ -399,15 +402,6 @@ struct kalman {
   float UP4 = 1.0;
   float bmpTempEst = 0.0;
   float bmiTempEst = 0.0;
-
-  // Change the value of tempVariance to make the data smoother or respond faster
-  float oriVariance = 1.12184278324081E-06;
-  float varProcess5 = 1e-8;
-  float PC5 = 0.0;
-  float K5 = 0.0;
-  float UP5 = 1.0;
-  float AxEst = 0.0;
-  float AyEst = 0.0;
 };
 kalman kal; 
 
@@ -465,6 +459,7 @@ void setup() {
   flightState = CONFIGURATION;
   startupSequence();
   sdstart();
+  sdconfig();
   sdSettings();
   launchpoll();
   flightState = PAD_IDLE;
@@ -490,13 +485,14 @@ void loop() {
     launchdetect();
     sensordata();
     sdwrite();
-    if (StaticFireMode == false) {
-      burnout();
-      abortsystem();
-    
-  } if (StaticFireMode ==  true) {
-      liftoffThresh = 0;
-    }
+
+  if (event.StaticFireMode == false) {
+    burnout();
+    abortsystem();
+   
+  } if (event.StaticFireMode ==  true) {
+    liftoffThresh = 0;
+  }
     // Setting the previous time to the current time
     time.previousTime = time.currentTime;
   }
@@ -563,9 +559,9 @@ void pidcompute () {
   pid.Y_p = pid.Gain[0] * pid.errorY;
 
   if (time.flightTime <= 1000) {
-    pid.Gain[1] = 0.4;
+    pid.Gain[1] = 0.6;
   } else {
-    pid.Gain[1] = 0.1;
+    pid.Gain[1] = 0.15;
   }
 
   // Defining "I"
@@ -647,6 +643,24 @@ void sdstart () {
     return;
   }
   Serial.println("SD Card Initialized.");
+}
+
+void sdconfig () {
+  if (SD.exists("CONFIG.txt")) {
+    return;
+  } 
+  else {
+    String configString = "";
+    configString += "Welcome to the Omega Flight Computer!";
+    File configFile = SD.open("CONFIG.txt", FILE_WRITE);
+
+  if (configFile){
+    configFile.println(configString);
+    configFile.close(); 
+  }
+  delay(2000);    
+  return;
+  }
 }
 
 void sdSettings () {
@@ -1012,29 +1026,8 @@ void tempKalman (double Xp4, double Xp5) {
   kal.bmiTempEst = kal.K4 * (accel.getTemperature_C() - Zp5) + Xp5;
 }
 
-void oriKalman (double Xp6, double Xp7) {
-    // Predict the next covariance
-  kal.PC5 = kal.UP5 + kal.varProcess5;
-
-  // Compute the kalman gain
-  kal.K5 = kal.PC5 / (kal.PC5 + kal.oriVariance);
-
-  // Update the covariance
-  kal.UP5 = (1 - kal.K5) * kal.PC5;
-
-  // Re-define variables
-  Xp6 = kal.AxEst;
-  Xp7 = kal.AyEst;
-  float Zp6 = Xp6;
-  float Zp7 = Xp7;
-
-  // Final voltage estimation
-  kal.AxEst = kal.K5 * (gyroCal.Ax - Zp6) + Xp6;
-  kal.AyEst = kal.K5 * (gyroCal.Ay - Zp7) + Xp7;
-}
-
 void discoMode () {
-  if (DiscoMode == true) {
+  if (event.DiscoMode == true) {
     flightState = DISCO;
     LED.Color(white);
     tone(digital.buzzer, 1100);
