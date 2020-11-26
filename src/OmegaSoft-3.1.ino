@@ -120,7 +120,7 @@ class PID : public PIDVari {
     float Y_d = 0;
 
     // PID Array
-    double Gain[3] = {0.08, 0.15, 0.025};
+    double Gain[3] = {0.09, 0.1, 0.0225};
 };
 PID pid;
 
@@ -163,11 +163,11 @@ class tvc {
     const float Ystart = tvcDirection * (tvcDirection * servoOffX);
 
     //The amount the servo moves by in the startup function
-    const byte startOffset = 10;
+    const byte startOffset = 5;
 
     //Ratio between servo gear and tvc mount
-    float XgearRatio = 3.5; // 4.5
-    float YgearRatio = 2.1; // 3.5
+    float XgearRatio = 3.5; 
+    float YgearRatio = 2.2;
 
     // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
     const uint16_t Frequency[2] = {50, 333};
@@ -206,10 +206,10 @@ class Time {
 
     //Timer settings for dataLogging in Hz
     unsigned long previousLog = 0;
-    const long logInterval = 10;
+    const long logInterval = 15;
 
     // Time in millis after launch when burnout can be triggered
-    const long burnoutInterval = 750;
+    const long burnoutInterval = 1000;
 
     // Delay after burnout when the flight computer will deploy the chutes
     const long burnoutTimeInterval = 1000;
@@ -227,6 +227,7 @@ struct digitalPins {
   const int voltagedivider = 0;
   const int buzzer = 15;
   const int teensyled = 13;
+  const int pyro[3] = {34, 35, 33};
 };
 digitalPins digital;
 
@@ -242,68 +243,18 @@ const float DividerMultplier = 5.86;
 };
 volt V;
 
-// LED Struct
-struct Pyro {
-  const int p[3];
-};
-
-class PyroTech {
-  private:
-    // Create the three variables for each pin on an RGB LED
-    int p1;
-    int p2;
-    int p3;
-
-  public:
-    // Constructor for the class
-    PyroTech(int new1Pin, int new2Pin, int new3Pin) {
-      // Set the pins in private to the new pins
-      p1 = new1Pin;
-      p2 = new2Pin;
-      p3 = new3Pin;
-
-      // Set the pin mode of each pin to output
-      pinMode(p1, OUTPUT);
-      pinMode(p2, OUTPUT);
-      pinMode(p3, OUTPUT);
-    }
-
-    void Fire(int new1, int new2, int new3) {
-      analogWrite(p1, new1);
-      analogWrite(p2, new2);
-      analogWrite(p3, new3);
-    }
-    
-    void Fire(Pyro pyros) {
-      analogWrite(p1, pyros.p[0]);
-      analogWrite(p2, pyros.p[1]);
-      analogWrite(p3, pyros.p[2]);
-    }
-
-    void off() {
-      // Turn each led pin off
-      analogWrite(p1, 0);
-      analogWrite(p2, 0);
-      analogWrite(p3, 0);
-    }
-};
-
-PyroTech pyro(34, 35, 33);
-
-// All possible RGB LED Colors
-Pyro P1 = {255, 0, 0};
-Pyro P2 = {0, 255, 0};
-Pyro P3 = {0, 0, 255};
-
 // The degrees that triggers the abort function
-const int abortoffset = 60;
+const int abortoffset = 75;
 
 // Liftoff acceleration threshold
 uint32_t liftoffThresh = 13;
 
+// Vertical Velocity variable
+double verticalVel;
+
 struct Event {
-  bool DiscoMode = false;
-  bool StaticFireMode = false;
+  const bool DiscoMode = false;
+  const bool StaticFireMode = false;
 };
 Event event;
 
@@ -387,7 +338,7 @@ struct kalman {
   float accEst = 0.0;
 
   // Change the value of voltVariance to make the data smoother or respond faster
-  float voltVariance = 1.12184278324081E-05; 
+  float voltVariance = 1.12184278324081E-07; 
   float varProcess3 = 1e-8;
   float PC3 = 0.0;
   float K3 = 0.0;
@@ -395,7 +346,7 @@ struct kalman {
   float voltageEst = 0.0;
 
   // Change the value of tempVariance to make the data smoother or respond faster
-  float tempVariance = 1.12184278324081E-04;
+  float tempVariance = 1.12184278324081E-05;
   float varProcess4 = 1e-8;
   float PC4 = 0.0;
   float K4 = 0.0;
@@ -411,15 +362,14 @@ kalman kal;
 
 enum FlightState {
   CONFIGURATION = 0, 
-  CALIBRATION = 1, 
-  PAD_IDLE = 2,
-  POWERED_FLIGHT = 3,
-  MECO = 4,
-  APOGEE = 5,
-  CHUTE_DEPLOYMENT = 6,
-  ABORT = 7,
-  VOLTAGE_WARNING = 8,
-  DISCO = 9
+  PAD_IDLE = 1,
+  POWERED_FLIGHT = 2,
+  MECO = 3,
+  APOGEE = 4,
+  CHUTE_DEPLOYMENT = 5,
+  ABORT = 6,
+  VOLTAGE_WARNING = 7,
+  DISCO = 8
 };
 FlightState flightState = PAD_IDLE;
 
@@ -456,10 +406,13 @@ void setup() {
   servoX.write(servo.Xstart);
   servoY.write(servo.Ystart);
 
+  for (int i; i < 4; i++) {
+    pinMode(digital.pyro[i], OUTPUT);
+  }
+
   flightState = CONFIGURATION;
   startupSequence();
   sdstart();
-  sdconfig();
   sdSettings();
   launchpoll();
   flightState = PAD_IDLE;
@@ -478,21 +431,26 @@ void loop() {
 
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp2.temperature, bmp2.pressure, bmp2.altitude)) {
-    discoMode();
     inflightTimer();
     altitudeOffset();
-    gyroOffset();
     launchdetect();
     sensordata();
     sdwrite();
 
-  if (event.StaticFireMode == false) {
+    if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT) {
+      gyroOffset();
+
+  } if (event.StaticFireMode == false) {
     burnout();
     abortsystem();
    
   } if (event.StaticFireMode ==  true) {
     liftoffThresh = 0;
+  
+  } if (event.DiscoMode ==  true) {
+    discoMode();
   }
+
     // Setting the previous time to the current time
     time.previousTime = time.currentTime;
   }
@@ -500,12 +458,13 @@ void loop() {
 
 void sensordata () {
   switch (flightState) {
-    case PAD_IDLE:
-      voltage(); 
-  }
+    case POWERED_FLIGHT:
+      verticalVel += accel.getAccelZ_mss() * time.dtseconds; 
+  }   
+  voltage(); 
   accZKalman(kal.accEst);
   altKalman(kal.altEst);  
-  tempKalman(kal.bmpTempEst, kal.bmiTempEst);       
+  tempKalman(kal.bmpTempEst, kal.bmiTempEst);  
 }
 
 void quaternion () {
@@ -559,9 +518,9 @@ void pidcompute () {
   pid.Y_p = pid.Gain[0] * pid.errorY;
 
   if (time.flightTime <= 1000) {
-    pid.Gain[1] = 0.6;
+    pid.Gain[1] = 0.4;
   } else {
-    pid.Gain[1] = 0.15;
+    pid.Gain[1] = 0.1;
   }
 
   // Defining "I"
@@ -645,24 +604,6 @@ void sdstart () {
   Serial.println("SD Card Initialized.");
 }
 
-void sdconfig () {
-  if (SD.exists("CONFIG.txt")) {
-    return;
-  } 
-  else {
-    String configString = "";
-    configString += "Welcome to the Omega Flight Computer!";
-    File configFile = SD.open("CONFIG.txt", FILE_WRITE);
-
-  if (configFile){
-    configFile.println(configString);
-    configFile.close(); 
-  }
-  delay(2000);    
-  return;
-  }
-}
-
 void sdSettings () {
   String settingstring = "";
 
@@ -737,60 +678,64 @@ void sdwrite () {
   datastring += String(global.Az);
   datastring += ",";
 
-  datastring += "System_State,";
+  datastring += "SystemState,";
   datastring += String(flightState);
   datastring += ",";
 
-  datastring += "Raw_Z_Axis_Accel,";
+  datastring += "RawZAxisAccel,";
   datastring += String(accel.getAccelZ_mss());
   datastring += ",";
 
-  datastring += "Filtered_Z_Axis_Accel,";
+  datastring += "FilteredZAxisAccel,";
   datastring += String(kal.accEst);
   datastring += ",";
 
-  datastring += "Servo_X_POS,";
-  datastring += String(servoX.read());
+  datastring += "ServoXPOS,";
+  datastring += String((servoX.read() - servo.servoOffY) / servo.YgearRatio);
   datastring += ",";
 
-  datastring += "Servo_Y_POS,";
-  datastring += String(servoY.read());
+  datastring += "ServoYPOS,";
+  datastring += String((servoY.read() - servo.servoOffX) / servo.XgearRatio);
   datastring += ",";
 
-  datastring += "Raw_Voltage,";
+  datastring += "RawVoltage,";
   datastring += String(V.DividerOUT);
   datastring += ",";
 
-  datastring += "Filtered_Voltage,";
+  datastring += "FilteredVoltage,";
   datastring += String(kal.voltageEst);
   datastring += ",";
 
-  datastring += "Raw_IMU_Temp,";
+  datastring += "RawIMUTemp,";
   datastring += String(accel.getTemperature_C());
   datastring += ",";
 
-  datastring += "Filtered_IMU_Temp,";
+  datastring += "FilteredIMUTemp,";
   datastring += String(kal.bmiTempEst);
   datastring += ",";
 
-  datastring += "Raw_Barometer_Temp,";
+  datastring += "RawBarometerTemp,";
   datastring += String(bmp2.temperature);
   datastring += ",";
 
-  datastring += "Filtered_IMU_Temp,";
+  datastring += "FilteredIMUTemp,";
   datastring += String(kal.bmpTempEst);
   datastring += ",";
 
-  datastring += "Filtered_Altitude,";
+  datastring += "FilteredAltitude,";
   datastring += String(kal.altEst);
   datastring += ",";
 
-  datastring += "Raw_Altitude,";
+  datastring += "RawAltitude,";
   datastring += String(bmp2.altitudefinal);
   datastring += ",";
 
   datastring += "Pressure,";
   datastring += String(bmp2.pressure);
+  datastring += ",";
+
+  datastring += "VerticalVelocity,";
+  datastring += String(verticalVel);
   datastring += ",";
 
   File omegaFile = SD.open("log001.txt", FILE_WRITE);
@@ -836,9 +781,10 @@ void chuteDeployment () {
   if ((flightState == APOGEE || flightState == CHUTE_DEPLOYMENT) && (kal.altEst - bmp2.launchsite_alt) <= bmp2.altsetpoint) {
     // Chute deployment; changing the system state to state 4
     flightState = CHUTE_DEPLOYMENT;
-    pyro.Fire(P1);
-    pyro.Fire(P2);
-    pyro.Fire(P3);
+
+    digitalWrite(digital.pyro[0], HIGH);
+    digitalWrite(digital.pyro[1], HIGH);
+    digitalWrite(digital.pyro[2], HIGH);
     LED.Color(red);
   }
 }
@@ -864,11 +810,7 @@ void launchpoll () {
   }
     Serial.println("I2C Devices Found!");
     delay(250);
-
-    flightState = CALIBRATION;
-    case CALIBRATION:
-      Serial.println("Gyroscopes have been calibrated.");
-      LED.Color(yellow);  
+    LED.Color(yellow);  
   }
 }
 
@@ -878,9 +820,9 @@ void abortsystem () {
     flightState = ABORT;
 
     // Firing the pyrotechnic channel
-    pyro.Fire(P1);
-    pyro.Fire(P2);
-    pyro.Fire(P3);
+    digitalWrite(digital.pyro[0], HIGH);
+    digitalWrite(digital.pyro[1], HIGH);
+    digitalWrite(digital.pyro[2], HIGH);
 
     Serial.println("Abort Detected.");
     LED.Color(purple);
@@ -939,7 +881,7 @@ void gyroOffset () {
 
 void voltageWarning () {
   // If the system voltage is less than 7.6
-  if (kal.voltageEst <= 7) {
+  if (V.DividerOUT <= 7.2) {
     flightState = VOLTAGE_WARNING;
     digitalWrite(digital.teensyled, HIGH);
     tone(digital.buzzer, 1200);
@@ -949,7 +891,6 @@ void voltageWarning () {
     delay(400);
   }
 }
-
 
 void altKalman (double Xp) {
   // Predict the next covariance
@@ -1007,7 +948,7 @@ void voltageKalman (double Xp3) {
 }
 
 void tempKalman (double Xp4, double Xp5) {
-    // Predict the next covariance
+  // Predict the next covariance
   kal.PC4 = kal.UP4 + kal.varProcess4;
 
   // Compute the kalman gain
@@ -1027,28 +968,26 @@ void tempKalman (double Xp4, double Xp5) {
 }
 
 void discoMode () {
-  if (event.DiscoMode == true) {
-    flightState = DISCO;
-    LED.Color(white);
-    tone(digital.buzzer, 1100);
-    delay(300);
-    LED.Color(purple);
-    noTone(digital.buzzer);
-    delay(300);
+  flightState = DISCO;
+  LED.Color(white);
+  tone(digital.buzzer, 1100);
+  delay(300);
+  LED.Color(purple);
+  noTone(digital.buzzer);
+  delay(300);
 
-    LED.Color(yellow);
-    tone(digital.buzzer, 1100);
-    delay(300);
-    LED.Color(blue);
-    noTone(digital.buzzer);
-    delay(300);
+  LED.Color(yellow);
+  tone(digital.buzzer, 1100);
+  delay(300);
+  LED.Color(blue);
+  noTone(digital.buzzer);
+  delay(300);
 
-    LED.Color(red);
-    tone(digital.buzzer, 1100);
-    delay(300);
-    LED.Color(green);
-    noTone(digital.buzzer);
-    delay(300);
-  }
+  LED.Color(red);
+  tone(digital.buzzer, 1100);
+  delay(300);
+  LED.Color(green);
+  noTone(digital.buzzer);
+  delay(300);
 }
 
