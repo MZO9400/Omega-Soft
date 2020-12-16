@@ -1,5 +1,5 @@
 /* Delta Space Systems
-      Version 3.1
+      Version 3.1 
     November, 17th 2020 */
 
 /*System State:
@@ -155,7 +155,7 @@ class tvc {
     void setOffsetX(int Xoff) {
     XOff = Xoff;
     }
-    float servoOffX = 129;
+    float servoOffX = 117;
     float servoOffY = 113.25;
 
     //Position of servos through the startup function
@@ -167,7 +167,7 @@ class tvc {
 
     //Ratio between servo gear and tvc mount
     float XgearRatio = 3.5; 
-    float YgearRatio = 2.2;
+    float YgearRatio = 1.7;
 
     // Servo frequency - Set Frequency to 0 for standard servos and 1 for blue bird servos
     const uint16_t Frequency[2] = {50, 333};
@@ -206,7 +206,7 @@ class Time {
 
     //Timer settings for dataLogging in Hz
     unsigned long previousLog = 0;
-    const long logInterval = 15;
+    const long logInterval = 10;
 
     // Time in millis after launch when burnout can be triggered
     const long burnoutInterval = 1000;
@@ -244,7 +244,7 @@ const float DividerMultplier = 5.86;
 volt V;
 
 // The degrees that triggers the abort function
-const int abortoffset = 75;
+const int abortoffset = 60;
 
 // Liftoff acceleration threshold
 uint32_t liftoffThresh = 13;
@@ -468,6 +468,7 @@ void sensordata () {
 }
 
 void quaternion () {
+  
   // Setting the orientation axis'
   local.Qw[0] = 0; 
   local.Qw[1] = gyroCal.Ay; //Ay
@@ -544,8 +545,6 @@ void pidcompute () {
 }
 
 void startupSequence () {
-  servoX.attach(2);
-  servoY.attach(3);
   delay(500);
   LED.Color(white);
   tone(digital.buzzer, 1050);
@@ -556,17 +555,6 @@ void startupSequence () {
   delay(400);
   noTone(digital.buzzer);
   delay(500);
-  servoX.write(servo.Xstart + 10);
-  delay(400);
-  servoX.write(servo.Xstart - 10);
-  delay(200);
-  servoX.write(servo.Xstart);
-  delay(400);
-  servoY.write(servo.Ystart + 10);
-  delay(400);
-  servoY.write(servo.Ystart - 10);
-  delay(200);
-  servoY.write(servo.Ystart);
   tone(digital.buzzer, 1100);
   LED.Color(blue);
   delay(150);
@@ -990,4 +978,3 @@ void discoMode () {
   noTone(digital.buzzer);
   delay(300);
 }
-
