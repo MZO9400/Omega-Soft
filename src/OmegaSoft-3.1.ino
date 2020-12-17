@@ -1,6 +1,6 @@
 /* Delta Space Systems
-      Version 3.1 
-    November, 17th 2020 */
+   Version 3.1 BETA 5
+  December, 16th 2020 */
 
 /*System State:
    0 = Configuration
@@ -15,7 +15,7 @@
    9 = Disco Mode
 */
 
-//Libraries
+/* ------------------------------- Libraries ------------------------------ */
 #include <SD.h>
 #include <SPI.h>
 #include <Servo.h>
@@ -31,6 +31,21 @@ Bmi088Accel accel(Wire, 0x18);
 Bmi088Gyro gyro(Wire, 0x68);
 
 BMP280_DEV bmp280;
+
+/* -------------------------------------------------------------------------- */
+/*                           Rocket Characteristics                           */
+/* -------------------------------------------------------------------------- */
+
+struct rocketChar {
+  String Name = "Frontier";
+  double motorThrust = Mass * accel.getAccelX_mss();
+  float avgThrust = 20;
+
+  private:
+    // Rocket mass in g
+    float Mass = 700; 
+};
+rocketChar rocket;
 
 /* -------------------------------------------------------------------------- */
 /*                            Orientation Variables                           */
@@ -71,6 +86,12 @@ struct gyroCalibration {
   double Ax, Ay, Az;
 };
 gyroCalibration gyroCal;
+
+double newIntegrator1;
+double newIntegrator2;
+double newIntegrator3;
+double newIntegrator4;
+
 
 /* -------------------------------------------------------------------------- */
 /*                                PID Variables                               */
@@ -120,7 +141,8 @@ class PID : public PIDVari {
     float Y_d = 0;
 
     // PID Array
-    double Gain[3] = {0.09, 0.1, 0.0225};
+    double Gain[2] = {0.10, 0.03};
+    double Integrator[2];
 };
 PID pid;
 
@@ -132,7 +154,7 @@ struct barometer {
   float temperature, pressure, altitude, altitudefinal, altitude2;
 
   // Altitude at which the chutes will deploy
-  const int16_t altsetpoint = 100;
+  const int16_t altsetpoint = 75;
 
   // Launch Site Altitude in Meters(ASL)
   int launchsite_alt = 0;
@@ -155,8 +177,8 @@ class tvc {
     void setOffsetX(int Xoff) {
     XOff = Xoff;
     }
-    float servoOffX = 117;
-    float servoOffY = 113.25;
+    float servoOffX = 119;
+    float servoOffY = 110.5;
 
     //Position of servos through the startup function
     const float Xstart = tvcDirection * (tvcDirection * servoOffY);
@@ -207,6 +229,10 @@ class Time {
     //Timer settings for dataLogging in Hz
     unsigned long previousLog = 0;
     const long logInterval = 10;
+
+    //Timer settings for the integrator in Hz
+    unsigned long previousInt = 0;
+    const long Interval = 20;
 
     // Time in millis after launch when burnout can be triggered
     const long burnoutInterval = 1000;
@@ -373,6 +399,12 @@ enum FlightState {
 };
 FlightState flightState = PAD_IDLE;
 
+enum integralScaler {
+  START = 1,
+  END = 2
+};
+integralScaler Integralscaler = START;
+
 
 void setup() {
   // Starting serial communication with your computer
@@ -429,6 +461,8 @@ void loop() {
   local.GyroRawY = gyro.getGyroY_rads();
   local.GyroRawZ = gyro.getGyroZ_rads();
 
+
+
   // Get measurements from the BMP280
   if (bmp280.getMeasurements(bmp2.temperature, bmp2.pressure, bmp2.altitude)) {
     inflightTimer();
@@ -436,6 +470,7 @@ void loop() {
     launchdetect();
     sensordata();
     sdwrite();
+    integralScale();
 
     if (flightState == PAD_IDLE || flightState == POWERED_FLIGHT) {
       gyroOffset();
@@ -514,23 +549,31 @@ void pidcompute () {
   pid.errorX = global.Ay - pid.desiredAngleX;
   pid.errorY = global.Ax - pid.desiredAngleY;
 
+  if (global.Ax >= 0.001) {
+    pid.Integrator[1] = newIntegrator1;
+  }
+  if (global.Ax <= -0.001) {
+    pid.Integrator[1] = newIntegrator2;
+  }
+
+  if (global.Ay >= 0.001) {
+    pid.Integrator[2] = newIntegrator3;
+  }
+  if (global.Ay <= -0.001) {
+    pid.Integrator[2] = newIntegrator4;
+  }
+
   // Defining "P"
   pid.X_p = pid.Gain[0] * pid.errorX;
   pid.Y_p = pid.Gain[0] * pid.errorY;
 
-  if (time.flightTime <= 1000) {
-    pid.Gain[1] = 0.4;
-  } else {
-    pid.Gain[1] = 0.1;
-  }
-
   // Defining "I"
-  pid.X_i = pid.Gain[1] * (pid.X_i + pid.errorX * time.dtseconds);
-  pid.Y_i = pid.Gain[1] * (pid.Y_i + pid.errorY * time.dtseconds);
+  pid.X_i = pid.Integrator[1] * (pid.X_i + pid.errorX * time.dtseconds);
+  pid.Y_i = pid.Integrator[2] * (pid.Y_i + pid.errorY * time.dtseconds);
 
   // Defining "D"
-  pid.X_d = pid.Gain[2] * ((pid.errorX - pid.previous_errorX) / time.dtseconds);
-  pid.Y_d = pid.Gain[2] * ((pid.errorY - pid.previous_errorY) / time.dtseconds);  
+  pid.X_d = pid.Gain[1] * ((pid.errorX - pid.previous_errorX) / time.dtseconds);
+  pid.Y_d = pid.Gain[1] * ((pid.errorY - pid.previous_errorY) / time.dtseconds);  
 
   // Adding it all up
   pid.X = pid.X_p + pid.X_i + pid.X_d;
@@ -726,6 +769,10 @@ void sdwrite () {
   datastring += String(verticalVel);
   datastring += ",";
 
+  datastring += "MotorThrust,";
+  datastring += String(rocket.motorThrust);
+  datastring += ",";
+
   File omegaFile = SD.open("log001.txt", FILE_WRITE);
 
   if (omegaFile) {
@@ -799,6 +846,8 @@ void launchpoll () {
     Serial.println("I2C Devices Found!");
     delay(250);
     LED.Color(yellow);  
+    Serial.print("Go");
+    Serial.println(rocket.Name);
   }
 }
 
@@ -978,3 +1027,32 @@ void discoMode () {
   noTone(digital.buzzer);
   delay(300);
 }
+
+void integralScale () {
+  if (flightState == POWERED_FLIGHT) {
+    if (Integralscaler = START) {
+      if ((global.Ax >= 20 || global.Ax <= -20) || (global.Ay >= 20 || global.Ay <= -20)) {
+        Integralscaler = END;
+      }
+
+    if (Integralscaler = END) {
+      if (global.Ax >= 0.01) {
+          newIntegrator1 = map(global.Ax, 0, 50, 0.1, 0.4);
+
+      } else if (global.Ax <= -0.01){
+        newIntegrator2 = map(global.Ax, -50, 0, 0.4, 0.1);
+      }
+
+      if (global.Ay >= 0.01) {
+        newIntegrator3 = map(global.Ay, 0, 50, 0.1, 0.4);
+
+      } else if (global.Ay <= -0.01){
+        newIntegrator4 = map(global.Ay, -50, 0, 0.4, 0.1);
+        }
+      }
+    } 
+  }
+}
+
+
+
